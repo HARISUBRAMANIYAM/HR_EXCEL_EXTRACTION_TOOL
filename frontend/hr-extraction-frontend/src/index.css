@@ -1042,4 +1042,164 @@ select {
     padding: 15px;
   }
 }
+/* FilesList Additional Styles */
 
+/* Tab Navigation */
+.tabs {
+  display: flex;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #ddd;
+}
+
+.tabs button {
+  padding: 10px 20px;
+  background-color: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #555;
+  margin-right: 10px;
+  transition: all 0.3s ease;
+}
+
+.tabs button:hover {
+  color: #3498db;
+}
+
+.tabs button.active {
+  color: #3498db;
+  border-bottom: 3px solid #3498db;
+  font-weight: bold;
+}
+
+/* File Section */
+.file-section {
+  margin-bottom: 30px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 15px;
+}
+
+.file-section h2 {
+  margin-top: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+  color: #2c3e50;
+}
+
+/* Download Buttons */
+.download-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.download-button {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.download-button:hover {
+  background-color: #2980b9;
+}
+
+.download-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+/* Improved Table Styles */
+.files-table {
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.files-table th {
+  background-color: #f8f9fa;
+  text-align: left;
+  font-weight: 600;
+  color: #495057;
+}
+
+.files-table tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+.files-table tr:hover {
+  background-color: #f1f8ff;
+}
+
+/* Status Classes */
+tr.success {
+  background-color: #f0fff0 !important;
+}
+
+tr.error {
+  background-color: #fff0f0 !important;
+}
+
+tr.processing {
+  background-color: #f0f8ff !important;
+}
+
+/* Format the status text */
+.status {
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.status.success {
+  background-color: #d4edda;
+}
+
+.status.error {
+  background-color: #f8d7da;
+}
+
+.status.processing {
+  background-color: #e1ecf4;
+  color: #0c5460;
+}
+
+/* Empty state styling */
+.files-list p:not(:first-child) {
+  color: #6c757d;
+  text-align: center;
+  margin: 20px 0;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .files-list {
+    padding: 15px;
+    margin: 20px auto;
+  }
+  
+  .files-table th,
+  .files-table td {
+    padding: 8px 5px;
+    font-size: 0.9rem;
+  }
+  
+  .download-buttons {
+    flex-direction: column;
+  }
+  
+  .tabs button {
+    padding: 8px 15px;
+    font-size: 0.9rem;
+  }
+}

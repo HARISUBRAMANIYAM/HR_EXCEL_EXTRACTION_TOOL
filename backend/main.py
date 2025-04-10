@@ -514,7 +514,7 @@ create_db_tables()'''
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, validator
-from typing import Optional, List
+from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 import os
 from passlib.context import CryptContext
@@ -621,6 +621,12 @@ class DashboardStats(BaseModel):
     success_files: int
     error_files: int
     recent_files: List[ProcessedFileResponse]
+class DirectoryFile(BaseModel):
+    filename: str
+    filepath: str
+    size: int
+    created_at: str
+    type: str
 
 class UserModel(Base):
     __tablename__ = "users"
@@ -1081,6 +1087,87 @@ async def download_file(
     else:
         # For Excel, keep the original filename (which should already have .xlsx/.xls extension)
         filename = original_filename
+    
+    # Return file as a response
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type=media_type
+    )
+@app.get("/directory_files", response_model=Dict[str, List[DirectoryFile]])
+async def list_directory_files(
+    current_user: UserModel = Depends(get_current_user),
+):
+    # Define directories to scan
+    excel_dir = "D:\\MyProject\\backend\\processed_excels"
+    text_dir = "D:\\MyProject\\backend\\processed_texts"
+    
+    # Check if directories exist
+    if not os.path.exists(excel_dir):
+        raise HTTPException(status_code=404, detail=f"Excel directory not found: {excel_dir}")
+    if not os.path.exists(text_dir):
+        raise HTTPException(status_code=404, detail=f"Text directory not found: {text_dir}")
+    
+    # Get Excel files
+    excel_files = []
+    for filename in os.listdir(excel_dir):
+        if filename.endswith(".xlsx") or filename.endswith(".xls"):
+            filepath = os.path.join(excel_dir, filename)
+            file_stats = os.stat(filepath)
+            excel_files.append(
+                DirectoryFile(
+                    filename=filename,
+                    filepath=filepath,
+                    size=file_stats.st_size,
+                    created_at=datetime.fromtimestamp(file_stats.st_ctime).isoformat(),
+                    type="excel"
+                )
+            )
+    
+    # Get Text files
+    text_files = []
+    for filename in os.listdir(text_dir):
+        if filename.endswith(".txt"):
+            filepath = os.path.join(text_dir, filename)
+            file_stats = os.stat(filepath)
+            text_files.append(
+                DirectoryFile(
+                    filename=filename,
+                    filepath=filepath,
+                    size=file_stats.st_size,
+                    created_at=datetime.fromtimestamp(file_stats.st_ctime).isoformat(),
+                    type="text"
+                )
+            )
+    
+    return {
+        "excel_files": excel_files,
+        "text_files": text_files
+    }
+
+# Add this endpoint to download files directly from directories
+@app.get("/directory_files/{file_type}/{filename}")
+async def download_directory_file(
+    file_type: str,
+    filename: str,
+    current_user: UserModel = Depends(get_current_user),
+):
+    # Validate file_type
+    if file_type not in ["excel", "text"]:
+        raise HTTPException(status_code=400, detail="Invalid file type. Must be 'excel' or 'text'")
+    
+    # Determine directory based on file type
+    base_dir = "D:\\MyProject\\backend\\processed_excels" if file_type == "excel" else "D:\\MyProject\\backend\\processed_texts"
+    
+    # Construct full file path
+    file_path = os.path.join(base_dir, filename)
+    
+    # Check if file exists
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    
+    # Determine media type
+    media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if file_type == "excel" else "text/plain"
     
     # Return file as a response
     return FileResponse(
