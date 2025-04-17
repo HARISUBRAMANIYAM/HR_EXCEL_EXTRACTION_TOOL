@@ -59,6 +59,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         if (response.ok) {
           const userData = await response.json();
           setUser(userData);
+          console.log("Auth State:",{user,token})
         } else {
           logout();
         }

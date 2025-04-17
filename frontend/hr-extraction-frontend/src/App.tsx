@@ -9,10 +9,13 @@ import {
 } from "react-router-dom";
 import AuthForm from "./components/AuthForm";
 import Dashboard from "./components/Dashboard";
-import FilesList from "./components/FilesList";
-import FolderUpload from "./components/FolderUpload";
+import ErrorBoundary from "./components/Error/ErrorBoundary";
+import ProtectedRoute from "./components/Error/ProtectedRoute";
+import EsiFilesList from "./components/ESI/EsiFilesList";
+import EsiUpload from "./components/ESI/EsiUpload";
 import Layout from "./components/Layout";
-import ProtectedRoute from "./components/ProtectedRoute";
+import FilesList from "./components/PF/PFFilesList";
+import FolderUpload from "./components/PF/PFFolderUpload";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
 const AppRoutes = () => {
@@ -23,40 +26,58 @@ const AppRoutes = () => {
   }
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={user ? <Navigate to="/dashboard" /> : <AuthForm />}
-      />
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/files"
-        element={
-          <ProtectedRoute>
-            <FilesList />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/upload"
-        element={
-          <ProtectedRoute>
-            <FolderUpload />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/"
-        element={<Navigate to={user ? "/dashboard" : "/login"} />}
-      />
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route
+          path="/login"
+          element={user ? <Navigate to="/dashboard" /> : <AuthForm />}
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pf-files"
+          element={
+            <ProtectedRoute>
+              <FilesList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pf-upload"
+          element={
+            <ProtectedRoute>
+              <FolderUpload />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/esi-upload"
+          element={
+            <ProtectedRoute>
+              <EsiUpload />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/esi-files"
+          element={
+            <ProtectedRoute>
+              <EsiFilesList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/"
+          element={<Navigate to={user ? "/dashboard" : "/login"} />}
+        />
+      </Routes>
+    </ErrorBoundary>
   );
 };
 

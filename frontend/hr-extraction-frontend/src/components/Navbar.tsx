@@ -24,11 +24,17 @@ const Navbar: React.FC = () => {
           <Link to="/dashboard" className="navbar-item">
             Dashboard
           </Link>
-          <Link to="/files" className="navbar-item">
-            Files
+          <Link to="/pf-files" className="navbar-item">
+            PF Files
           </Link>
-          <Link to="/upload" className="navbar-item">
-            Upload
+          <Link to="/pf-upload" className="navbar-item">
+            PF Upload
+          </Link>
+          <Link to="/esi-upload" className="navbar-item">
+            ESI Upload
+          </Link>
+          <Link to="/esi-files" className="navbar-item">
+            ESI FILES
           </Link>
         </div>
       )}

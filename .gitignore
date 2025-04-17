@@ -29,3 +29,32 @@ backend\__pycache__
 backend\*.pyc
 # Ignore all .env files
 *.env
+backend\processed_excels
+backend\processed_excels_esi
+backend\processed_excels_pf
+backend\processed_texts
+backend\processed_texts_esi
+backend\processed_texts_pf
+
+.gitignore
+
+backend/Scheduleendpoint.txt
+backend/schemas.py
+backend/utils.py
+backend/scheduler.txt
+backend\__pycache__
+backend/hr_extraction.db
+backend/__pycache__/main.cpython-312.pyc
+backend/__pycache__/models.cpython-312.pyc
+backend/__pycache__/Scheduleendpoint.cpython-312.pyc
+frontend/hr-extraction-frontend/src/components/ESI/EsiReport.txt
+schedule/api.txt
+backend/__pycache__/utils.cpython-312.pyc
+backend/__pycache__/schemas.cpython-312.pyc
+backend/__pycache__/scheduler.cpython-312.pyc
+backend/__pycache__/newmain.cpython-312.pyc
+backend/__pycache__/main.cpython-312.pyc
+backend/hr_extraction.db
+testupload.xlsx
+WhatsApp Image 2025-04-08 at 13.53.51_6549cdc8.jpg
+backend/__pycache__/main.cpython-312.pyc
