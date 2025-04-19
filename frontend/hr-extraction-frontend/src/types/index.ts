@@ -36,76 +36,53 @@ export enum Role {
     total_files: number;
     success_files: number;
     error_files: number;
-    recent_files: ProcessedFile[];
+    //recent_files: ProcessedFile[];
     pf_files?: number;       // Optional breakdown
     esi_files?: number;      // Optional breakdown
     pf_success?: number;     // Optional breakdown
     pf_error?: number;       // Optional breakdown
     esi_success?: number;    // Optional breakdown
-    esi_error?: number; 
+    esi_error?: number;
+    remittance_stats: {
+      total_submitted: number; // Total remittance submissions
+      pending: number; // Pending remittance submissions
+    };
+    monthly_stats: {
+      labels: string[]; // Array of month names (e.g., ["January", "February"])
+      datasets: {
+        pf_success: number[]; // Monthly PF success counts
+        pf_error: number[]; // Monthly PF error counts
+        esi_success: number[]; // Monthly ESI success counts
+        esi_error: number[]; // Monthly ESI error counts
+        remittance_submitted: number[]; // Monthly remittance submissions
+      };
+    };
+    recent_files: {
+      id: number; // File ID
+      filename: string; // File name
+      status: string; // File status (e.g., "success", "error")
+      created_at: string; // File creation date
+      filepath: string; // File path (used to determine type: PF or ESI)
+    }[];
+    user_activity?: {
+      top_users: {
+        username: string; // User's name
+        pf_files: number; // Number of PF files processed by the user
+        esi_files: number; // Number of ESI files processed by the user
+      }[];
+    };
+  
+
   }
   
   export interface FileProcessResult {
     file_path: string;
     status: string;
     message: string;
+    upload_date?:string;
   }
 // types.ts
 export interface User {
   id: number;
   username: string;
 }
-
-export interface Schedule {
-  id: number;
-  user_id: number;
-  name: string;
-  description: string;
-  frequency: "daily" | "weekly" | "monthly";
-  run_time: string; // Time in "HH:MM:SS" format
-  days_of_week: number[]; // 0-6 (Monday-Sunday)
-  day_of_month: number; // 1-31
-  process_type: "pf" | "esi";
-  input_folder: string;
-  output_folder: string;
-  archive_folder: string;
-  is_active: boolean;
-  created_at: string;
-  next_run: string;
-  last_run: string | null;
-}
-
-export interface SchedulerJob {
-  id: string;
-  name: string;
-  next_run_time: string;
-  trigger: string;
-}
-
-export interface SchedulerStatus {
-  running: boolean;
-  jobs: SchedulerJob[];
-}
-
-export interface ScheduleFormData {
-  name: string;
-  description: string;
-  frequency: "daily" | "weekly" | "monthly";
-  run_time: string;
-  days_of_week: number[];
-  day_of_month: number;
-  process_type: "pf" | "esi";
-  input_folder: string;
-  output_folder: string;
-  archive_folder: string;
-}
-
-export const weekdays = [
-  { id: 0, name: "Monday" },
-  { id: 1, name: "Tuesday" },
-  { id: 2, name: "Wednesday" },
-  { id: 3, name: "Thursday" },
-  { id: 4, name: "Friday" },
-  { id: 5, name: "Saturday" },
-  { id: 6, name: "Sunday" },
-];
