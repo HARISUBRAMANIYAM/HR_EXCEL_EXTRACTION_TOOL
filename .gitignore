@@ -22,20 +22,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-backend\processed_excels
-backend\processed_texts
-backend\myvenv
-backend\__pycache__
-backend\*.pyc
+backend/processed_excels
+backend/processed_texts
+backend/myvenv
+backend/__pycache__
+backend/*.pyc
 # Ignore all .env files
 *.env
-backend\processed_excels
-backend\processed_excels_esi
-backend\processed_excels_pf
-backend\processed_texts
-backend\processed_texts_esi
-backend\processed_texts_pf
-
+backend/processed_excels
+backend/processed_excels_esi
+backend/processed_excels_pf
+backend/processed_texts
+backend/processed_texts_esi
+backend/processed_texts_pf
+backend/remittance_challans
 .gitignore
 
 backend/Scheduleendpoint.txt
@@ -58,3 +58,7 @@ backend/hr_extraction.db
 testupload.xlsx
 WhatsApp Image 2025-04-08 at 13.53.51_6549cdc8.jpg
 backend/__pycache__/main.cpython-312.pyc
+backend/processed_excels_esi_new
+backend/processed_excels_pf_new
+backend/processed_texts_esi_new
+backend/processed_texts_pf_new

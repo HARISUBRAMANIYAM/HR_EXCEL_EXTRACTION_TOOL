@@ -1,11 +1,11 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form,Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, validator
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta,time
 import os
 from jose import JWTError, jwt
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, case, extract
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Enum,JSON,DATETIME,Time
 from sqlalchemy.orm import Session, sessionmaker, relationship
@@ -13,8 +13,11 @@ from sqlalchemy.sql import func
 import pandas as pd
 import uuid
 from pathlib import Path
+from fastapi import BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
+from datetime import date
+from fastapi.responses import StreamingResponse
 from typing import Annotated
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,6 +25,9 @@ from apscheduler.triggers.cron import CronTrigger
 from models import *
 from schemas import *
 from utils import *
+import zipfile
+from io import BytesIO
+import math
 # Create a FastAPI instance
 app = FastAPI()
 # Add CORS middleware to allow requests from your frontend
@@ -87,8 +93,17 @@ async def read_users_me(current_user: UserModel = Depends(get_current_user)):
 async def process_folder(
     folder_path: str = Form(...,min_length=3,max_length=500),
     current_user: UserModel = Depends(get_current_user),
+    upload_date:str =Form(...,description="Date of Upload in YYYY-MM-DD"),
     db: Session = Depends(get_db),
 ):
+    try:
+        upload_date_obj = datetime.strptime(upload_date, "%Y-%m-%d").date()
+        date_folder_name = upload_date_obj.strftime("%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Please use YYYY-MM-DD format"
+        )
     folder = Path(folder_path)
     if not folder_path.strip():
         raise HTTPException(status_code=422,detail="Folder path cannot be empty")
@@ -122,14 +137,18 @@ async def process_folder(
     processed_files = []
     overall_status = "success"
     overall_message = "All files processed successfully."
+    excel_output_dir = Path("processed_excels_pf_new") / date_folder_name
+    text_output_dir = Path("processed_texts_pf_new") / date_folder_name
+    excel_output_dir.mkdir(parents=True, exist_ok=True)
+    text_output_dir.mkdir(parents=True, exist_ok=True)
 
     for excel_file in excel_files:
         try:
             try:
                 if excel_file.suffix == ".xlsx":
-                    df = pd.read_excel(excel_file)
+                    df = pd.read_excel(excel_file,dtype={"UAN No":str})
                 else:
-                    df = pd.read_excel(excel_file, engine="xlrd")
+                    df = pd.read_excel(excel_file, engine="xlrd",dtype={"UAN No":str})
                
                 if df.empty:
                     error_message = f"Excel file {excel_file.name} is empty."
@@ -174,7 +193,6 @@ async def process_folder(
                     )
                 )
                 continue
-
             try:
                 # Check for required columns with alternative names
                 required_columns = {
@@ -220,16 +238,25 @@ async def process_folder(
                         )
                     )
                     continue
+                
 
                 # Process the data with correct logic
-                df[column_mapping["UAN No"]]=pd.to_numeric(df[column_mapping["UAN No"]],errors='coerce').fillna(0).astype(int)
-                uan_str = df[column_mapping["UAN No"]].astype(str)
-                uan_no = uan_str.str.replace("-","").astype("int64")
+                uan_no = df[column_mapping['UAN No']].astype(str).str.replace("-","")
                 member_name = df[column_mapping["Employee Name"]]
                 gross_wages = df[column_mapping["Gross Wages"]].fillna(0).round().astype(int)
                 epf_wages = df[column_mapping["EPF Wages"]].fillna(0).round().astype(int)
-                lop_days = df[column_mapping["LOP Days"]]
-                
+                lop_days_raw = df[column_mapping["LOP Days"]]
+
+                def custom_round(x):
+                    if pd.isna(x):
+                        return 0
+                    decimal_part = x - int(x)
+                    if decimal_part >= 0.5:
+                        return math.ceil(x)
+                    else:
+                        return math.floor(x)
+                lop_days = lop_days_raw.apply(custom_round)
+                #non_textual_rows = df[~df["Employee Name"].astype(str).str.contains("total", case=False, na=False)]                
                 # Calculate derived fields
                 eps_wages = epf_wages.apply(lambda x: min(x, 15000) if x > 0 else 0)
                 edli_wages = epf_wages.apply(lambda x: min(x, 15000) if x > 0 else 0)
@@ -254,10 +281,10 @@ async def process_folder(
                 })
 
                 # Create output directories if they don't exist
-                excel_output_dir = Path("processed_excels_pf")
+                '''excel_output_dir = Path("processed_excels_pf")
                 excel_output_dir.mkdir(parents=True, exist_ok=True)
                 text_output_dir = Path("processed_texts_pf")
-                text_output_dir.mkdir(parents=True, exist_ok=True)
+                text_output_dir.mkdir(parents=True, exist_ok=True)'''
 
                 original_stem = excel_file.stem
                 excel_filename = f"{original_stem}_{uuid.uuid4()}.xlsx"
@@ -265,7 +292,8 @@ async def process_folder(
                 excel_file_path = excel_output_dir / excel_filename
                 text_file_path = text_output_dir / text_filename
                 output_df.to_excel(excel_file_path, index=False)
-                # Prepare text file content
+                # Prepare text file conten
+
                 output_lines = [
                     "#~#".join(map(str, row)) for row in output_df.values.tolist()
                 ]
@@ -282,6 +310,7 @@ async def process_folder(
                     filepath=f"{str(excel_file_path)},{str(text_file_path)}",
                     status="success",
                     message="File processed successfully.",
+                    upload_date=upload_date_obj
                 )
                 db.add(db_file)
                 db.commit()
@@ -331,18 +360,97 @@ async def process_folder(
         file_path=folder_path,
         status=overall_status,
         message=overall_message,
+        upload_date=upload_date_obj
     )
 @app.get("/processed_files_pf", response_model=List[ProcessedFileResponse])
 async def get_processed_files_pf(
+    upload_date:date = Query(...,description="Date of upload in YYYY-MM-DD format"),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(ProcessedFilePF)
+    query = db.query(ProcessedFilePF).filter(ProcessedFilePF.upload_date == upload_date)
     if current_user.role not in [Role.HR, Role.ADMIN]:
         query = query.filter(ProcessedFilePF.user_id == current_user.id)
     files = query.order_by(ProcessedFilePF.created_at.desc()).all()
-    return [ProcessedFileResponse.from_orm(file) for file in files]
-
+    valid_files = []
+    for file in files:
+        if file.status == "success":
+            filepaths = file.filepath.split(",")
+            if len(filepaths) == 2:
+                excel_path = Path(filepaths[0])
+                text_path = Path(filepaths[1])
+                if excel_path.exists() and text_path.exists():
+                    valid_files.append(file)
+        else:
+            valid_files.append(file)
+    return [ProcessedFileResponse.from_orm(file) for file in valid_files]
+@app.post("/processed_files_pf/{file_id}/submit_remittance")
+async def submit_remittance(
+    file_id: int,
+    remittance_date: date = Form(...),
+    remittance_file: UploadFile = File(...),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Validate file
+    if not remittance_file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+    
+    # Get the file record
+    file = db.query(ProcessedFilePF).filter(ProcessedFilePF.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Check permissions
+    if current_user.role not in [Role.HR, Role.ADMIN] and file.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You don't have permission to update this file")
+    
+    # Create remittance directory if not exists
+    remittance_dir = Path("remittance_challans") / str(file.upload_date.year) / str(file.upload_date.month)
+    remittance_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate unique filename
+    file_ext = remittance_file.filename.split('.')[-1]
+    new_filename = f"remittance_{file_id}_{uuid.uuid4().hex[:8]}.{file_ext}"
+    file_path = remittance_dir / new_filename
+    
+    # Save the file
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(remittance_file.file, buffer)
+    
+    # Update database record
+    file.remittance_submitted = True
+    file.remittance_date = remittance_date
+    file.remittance_challan_path = str(file_path)
+    db.commit()
+    
+    return {"message": "Remittance submitted successfully", "file_path": str(file_path)}
+# New endpoint to download remittance challan
+@app.get("/processed_files_pf/{file_id}/remittance_challan")
+async def download_remittance_challan(
+    file_id: int,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    file = db.query(ProcessedFilePF).filter(ProcessedFilePF.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not file.remittance_submitted or not file.remittance_challan_path:
+        raise HTTPException(status_code=404, detail="No remittance challan found")
+    
+    # Check permissions
+    if current_user.role not in [Role.HR, Role.ADMIN] and file.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You don't have permission to access this file")
+    
+    if not Path(file.remittance_challan_path).exists():
+        raise HTTPException(status_code=404, detail="Remittance file not found on server")
+    
+    return FileResponse(
+        file.remittance_challan_path,
+        filename=f"remittance_challan_{file_id}.pdf",
+        media_type="application/pdf"
+    )
 @app.get("/processed_files_pf/{file_id}/download")
 async def download_pf_file(
     file_id: int,
@@ -369,9 +477,9 @@ async def download_pf_file(
     
     if len(filepaths) != 2:
         raise HTTPException(status_code=500, detail="Invalid file path format in database")
-    
-    excel_path = Path(filepaths[0])
-    text_path = Path(filepaths[1])
+    date_folder = file.upload_date.strftime("%Y-%m-%d") if file.upload_date else ""
+    excel_path = Path("processed_excels_pf_new")/date_folder/Path(filepaths[0]).name
+    text_path = Path("processed_texts_pf_new")/date_folder/Path(filepaths[1]).name
     
     # Determine which file to download based on file_type query parameter
     if file_type and file_type.lower() == "txt":
@@ -384,7 +492,10 @@ async def download_pf_file(
     
     # Verify the file exists
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found on server: {file_path}")
+        fallback_path  =Path(text_path if file_type and file_type.lower() =="txt" else excel_path)
+        if not fallback_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found on server: {file_path}")
+        file_path = fallback_path
     
     # Get the original filename from the file record
     original_filename = file.filename
@@ -482,13 +593,98 @@ async def download_directory_file(
         filename=filename,
         media_type=media_type
     )
-#*****************************************************************#
+@app.get("/processed_files_pf/batch_download")
+async def download_multiple_pf_files(
+    file_ids:str = Query(..., description="Comma-separated list of file IDs"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    background_tasks:BackgroundTasks = BackgroundTasks()
+):
+    try:
+        # Convert comma-separated string to list of integers
+        file_ids_list = [int(id) for id in file_ids.split(",")]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file IDs format")
+    files = db.query(ProcessedFilePF).filter(ProcessedFilePF.id.in_(file_ids_list)).all()
+    if not files:
+        raise HTTPException(status_code=404, detail="No files found")
+    for file in files:
+        if current_user.role not in [Role.HR, Role.ADMIN] and file.user_id != current_user.id:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"You don't have permission to download file with ID {file.id}"
+            )
+        
+        if file.status != "success":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot download file with ID {file.id} - status is not 'success'"
+            )
+    zip_buffer = BytesIO()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+        for file in files:
+            # Get both file paths (Excel and text)
+            filepaths = file.filepath.split(",")
+            
+            if len(filepaths) != 2:
+                continue  # skip invalid entries
+            date_folder = file.upload_date.strftime("%Y-%m-%d") if file.upload_date else ""
+            excel_path = Path("processed_excels_pf_new")/date_folder/Path(filepaths[0]).name
+            text_path = Path("processed_texts_pf_new")/date_folder/Path(filepaths[1]).name
+            
+            # Add both files to the zip with appropriate names
+            original_name = os.path.splitext(file.filename)[0]
+            zip_dir = f"{date_folder}/{original_name}" if date_folder else original_name
+            if excel_path.exists():
+                zip_file.write(
+                    excel_path,f"{zip_dir}/{original_name}.xlsx"
+                )
+            elif Path(filepaths[0]).exists():
+                zip_file.write(Path(filepaths[0]), f"{zip_dir}/{original_name}.xlsx")
+            if text_path.exists():
+                zip_file.write(
+                    text_path, f"{zip_dir}/{original_name}.txt"
+                )
+            elif Path(filepaths[1]).exists():  # Fallback to original path
+                zip_file.write(Path(filepaths[1]), f"{zip_dir}/{original_name}.txt")
+    if zipfile.ZipFile(zip_buffer, 'r').testzip() is not None:
+        raise HTTPException(
+        status_code=404,
+        detail="No valid files found for download")
+
+    # Return the zip file
+    zip_buffer.seek(0)
+    def cleanup():
+        zip_buffer.close()
+
+    background_tasks.add_task(cleanup)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            f"Content-Disposition": "attachment; filename=pf_files_bundle_{timestamp}.zip",
+            "Content-Type": "application/zip"
+        },
+        background=background_tasks
+    )
+#**********************************************************************************#
 @app.post("/esi_upload", response_model=FileProcessResult)
 async def process_esi_file(
     folder_path: str = Form(...),
+    upload_date:str = Form(...,description="Date of Upload in YYYY-MM-DD format"),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    try:
+        # Validate the upload date format
+        upload_date_obj = datetime.strptime(upload_date, "%Y-%m-%d").date()
+        date_folder_name = upload_date_obj.strftime("%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Please use YYYY-MM-DD format"
+        )
     folder = Path(folder_path)
     if not folder.is_dir():
         error_message = f"Invalid folder path: {folder_path}"
@@ -502,6 +698,7 @@ async def process_esi_file(
         db.add(db_file)
         db.commit()
         raise HTTPException(status_code=400, detail=error_message)
+        
     excel_files = list(folder.glob("*.xls*"))
     if not excel_files:
         error_message = f"No Excel files found in the folder: {folder_path}"
@@ -515,16 +712,22 @@ async def process_esi_file(
         db.add(db_file)
         db.commit()
         raise HTTPException(status_code=400, detail=error_message)
+    excel_output_dir = Path("processed_excels_esi_new") / date_folder_name
+    text_output_dir = Path("processed_texts_esi_new") / date_folder_name
+    excel_output_dir.mkdir(parents=True, exist_ok=True)
+    text_output_dir.mkdir(parents=True, exist_ok=True)
     processed_files = []
     overall_status = "success"
     overall_message = "All files processed successfully."
+    
     for excel_file in excel_files:
         try:
             try:
                 if excel_file.suffix == ".xlsx":
-                    df = pd.read_excel(excel_file)
+                    df = pd.read_excel(excel_file, dtype={"ESI N0": str})
                 else:
-                    df = pd.read_excel(excel_file, engine="xlrd")
+                    df = pd.read_excel(excel_file, engine="xlrd", dtype={"ESI N0": str})
+                    
                 if df.empty:
                     error_message = f"Excel file {excel_file.name} is empty."
                     db_file = ProcessedFileESI(
@@ -546,6 +749,7 @@ async def process_esi_file(
                         )
                     )
                     continue
+                    
             except Exception as e:
                 error_message = f"Error reading Excel file {excel_file.name}: {str(e)}"
                 db_file = ProcessedFileESI(
@@ -567,6 +771,7 @@ async def process_esi_file(
                     )
                 )
                 continue
+                
             try:
                 required_columns = {
                     "ESI No": ["ESI N0"],
@@ -574,8 +779,10 @@ async def process_esi_file(
                     "ESI Gross": ["ESI Gross"],
                     "Worked Days": ["Worked days"]
                 }
+                
                 column_mapping = {}
                 missing_columns = []
+                
                 for field, alternatives in required_columns.items():
                     found = False
                     for alt in alternatives:
@@ -585,6 +792,7 @@ async def process_esi_file(
                             break
                     if not found:
                         missing_columns.append(field)
+                        
                 if missing_columns:
                     error_message = f"Missing required columns in {excel_file.name}: {', '.join(missing_columns)}"
                     db_file = ProcessedFileESI(
@@ -606,13 +814,72 @@ async def process_esi_file(
                         )
                     )
                     continue
-                # Process the data with correct logic
-                df[column_mapping["ESI No"]]=pd.to_numeric(df[column_mapping["ESI No"]],errors='coerce').fillna(0).astype(int)
-                esi_str = df[column_mapping["ESI No"]].astype(str)
-                esi_no = esi_str.str.replace("-","").astype("int64")
+                # Filter out rows where ESI number is invalid
+                esi_column = df[column_mapping["ESI No"]]
+                
+                # Create mask to identify valid ESI numbers (not 0, not null, not NaN, not empty)
+                valid_esi_mask = ~(
+                    (esi_column == 0) | 
+                    (esi_column == "0") | 
+                    (esi_column == "0.0") | 
+                    (esi_column.isna()) | 
+                    (esi_column.isnull()) |
+                    (esi_column == "")
+                )
+                
+                # Filter the dataframe to keep only rows with valid ESI numbers
+                #df = df[valid_esi_mask]
+                esi_column_gross = df[column_mapping['ESI Gross']]
+                valid_esi_gross_mask=~(
+                    (esi_column_gross ==0) |
+                    (esi_column_gross.isna())|
+                    (esi_column_gross.isnull())
+                )
+                #df = df[esi_column_gross]
+                valid_rows_mask = valid_esi_mask & valid_esi_gross_mask
+                df= df[valid_rows_mask]
+                # Check if we still have data after filtering
+                if df.empty:
+                    error_message = f"No valid ESI data found in {excel_file.name} after filtering invalid entries"
+                    db_file = ProcessedFileESI(
+                        user_id=current_user.id,
+                        filename=excel_file.name,
+                        filepath=str(excel_file),
+                        status="error",
+                        message=error_message,
+                    )
+                    db.add(db_file)
+                    db.commit()
+                    overall_status = "error"
+                    overall_message = "Some files had errors during processing."
+                    processed_files.append(
+                        FileProcessResult(
+                            file_path=str(excel_file),
+                            status="error",
+                            message=error_message,
+                        )
+                    )
+                    continue
+                
+                # Now process the valid ESI numbers
+                esi_no = df[column_mapping["ESI No"]].astype(str).str.replace("-", "")
                 member_name = df[column_mapping["Employee Name"]]
                 esi_gross = df[column_mapping["ESI Gross"]].fillna(0).round().astype(int)
-                worked_days = df[column_mapping["Worked Days"]]
+                
+                # Apply custom rounding to Worked Days (same logic as LOP days)
+                worked_days_raw = df[column_mapping["Worked Days"]]
+                
+                # Custom rounding function: ≥5 round up, <5 round down
+                def custom_round(x):
+                    if pd.isna(x):
+                        return 0
+                    decimal_part = x - int(x)
+                    if decimal_part >= 0.5:
+                        return math.ceil(x)  # Round up
+                    else:
+                        return math.floor(x)  # Round down
+                
+                worked_days = worked_days_raw.apply(custom_round)
 
                 output_df = pd.DataFrame({
                     "ESI No": esi_no,
@@ -620,25 +887,31 @@ async def process_esi_file(
                     "ESI GROSS": esi_gross,
                     "WORKED DAYS": worked_days
                 })
+                
                 # Create output directories if they don't exist
-                excel_output_dir = Path("processed_excels_esi")
+                '''excel_output_dir = Path("processed_excels_esi")
                 excel_output_dir.mkdir(parents=True, exist_ok=True)
                 text_output_dir = Path("processed_texts_esi")
-                text_output_dir.mkdir(parents=True, exist_ok=True)
+                text_output_dir.mkdir(parents=True, exist_ok=True)'''
+                
                 original_stem = excel_file.stem
                 excel_filename = f"{original_stem}_{uuid.uuid4()}_esi.xlsx"
                 text_filename = f"{original_stem}_{uuid.uuid4()}_esi.txt"
                 excel_file_path = excel_output_dir / excel_filename
                 text_file_path = text_output_dir / text_filename
-                output_df.to_excel(excel_file_path, index=False)
+                
+                output_df.to_excel(excel_file_path, index=False,float_format="%.0f")
+                
                 # Prepare text file content
                 output_lines = [
                     "#~#".join(map(str, row)) for row in output_df.values.tolist()
                 ]
                 header_line = "#~#".join(output_df.columns)
                 output_lines.insert(0, header_line)
+                
                 with open(text_file_path, "w") as f:
                     f.write("\n".join(output_lines))
+                    
                 # Save to database
                 db_file = ProcessedFileESI(
                     user_id=current_user.id,
@@ -646,9 +919,11 @@ async def process_esi_file(
                     filepath=f"{str(excel_file_path)},{str(text_file_path)}",
                     status="success",
                     message="File processed successfully.",
+                    upload_date = upload_date_obj
                 )
                 db.add(db_file)
                 db.commit()
+                
                 processed_files.append(
                     FileProcessResult(
                         file_path=f"{str(excel_file_path)},{str(text_file_path)}",
@@ -656,6 +931,7 @@ async def process_esi_file(
                         message="File processed successfully.",
                     )
                 )
+                
             except Exception as e:
                 error_message = f"Error processing file {excel_file.name}: {str(e)}"
                 db_file = ProcessedFileESI(
@@ -676,6 +952,7 @@ async def process_esi_file(
                         message=error_message,
                     )
                 )
+                
         except Exception as e:
             error_message = f"Unexpected error processing folder: {str(e)}"
             db_file = ProcessedFileESI(
@@ -688,10 +965,12 @@ async def process_esi_file(
             db.add(db_file)
             db.commit()
             raise HTTPException(status_code=500, detail=error_message)
+            
     return FileProcessResult(
         file_path=folder_path,
         status=overall_status,
         message=overall_message,
+        upload_date=upload_date_obj
     )
 @app.get("/directory_files_esi", response_model=Dict[str, List[DirectoryFile]])
 async def list_esi_directory_files(
@@ -743,15 +1022,27 @@ async def list_esi_directory_files(
         "text_files": text_files
     }
 @app.get("/processed_files_esi", response_model=List[ProcessedFileResponse])
-async def get_processed_files_pf(
+async def get_processed_files_esi(
+    upload_date:date = Query(...,description="Date of upload in YYYY-MM-DD format"),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(ProcessedFileESI)
+    query = db.query(ProcessedFileESI).filter(ProcessedFileESI.upload_date == upload_date)
     if current_user.role not in [Role.HR, Role.ADMIN]:
         query = query.filter(ProcessedFileESI.user_id == current_user.id)
     files = query.order_by(ProcessedFileESI.created_at.desc()).all()
-    return [ProcessedFileResponse.from_orm(file) for file in files]
+    valid_files = []
+    for file in files:
+        if file.status == "success":
+            filepaths = file.filepath.split(",")
+            if len(filepaths) == 2:
+                excel_path = Path(filepaths[0])
+                text_path = Path(filepaths[1])
+                if excel_path.exists() and text_path.exists():
+                    valid_files.append(file)
+        else:
+            valid_files.append(file)
+    return [ProcessedFileResponse.from_orm(file) for file in valid_files]
 
 @app.get("/processed_files_esi/{file_id}/download")
 async def download_esi_file(
@@ -779,9 +1070,10 @@ async def download_esi_file(
     
     if len(filepaths) != 2:
         raise HTTPException(status_code=500, detail="Invalid file path format in database")
+    date_folder = file.upload_date.strftime("%Y-%m-%d") if file.upload_date else ""
     
-    excel_path = Path(filepaths[0])
-    text_path = Path(filepaths[1])
+    excel_path = Path("processed_excels_esi_new")/date_folder/Path(filepaths[0]).name
+    text_path = Path("processed_texts_esi_new")/date_folder/Path(filepaths[1]).name
     
     # Determine which file to download based on file_type query parameter
     if file_type and file_type.lower() == "txt":
@@ -794,8 +1086,10 @@ async def download_esi_file(
     
     # Verify the file exists
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found on server: {file_path}")
-    
+        fallback_path = Path(text_path if file_type and file_type.lower() =="txt" else excel_path)
+        if not fallback_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found on server: {file_path}")
+        file_path =fallback_path    
     # Get the original filename from the file record
     original_filename = file.filename
     
@@ -813,8 +1107,160 @@ async def download_esi_file(
         filename=filename,
         media_type=media_type
     )
+@app.get("/processed_files_esi/batch_download")
+async def download_multiple_esi_files(
+    file_ids: str = Query(..., description="Comma-separated list of file IDs"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    background_tasks:BackgroundTasks = BackgroundTasks()
+):
+    try:
+        # Convert comma-separated string to list of integers
+        file_ids_list = [int(id) for id in file_ids.split(",")]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file IDs format")
+
+    # Get all requested files from the database
+    files = db.query(ProcessedFileESI).filter(ProcessedFileESI.id.in_(file_ids_list)).all()
+    
+    if not files:
+        raise HTTPException(status_code=404, detail="No files found")
+    
+    # Verify user has access to all requested files
+    for file in files:
+        if current_user.role not in [Role.HR, Role.ADMIN] and file.user_id != current_user.id:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"You don't have permission to download file with ID {file.id}"
+            )
+        
+        if file.status != "success":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot download file with ID {file.id} - status is not 'success'"
+            )
+    
+    # Create in-memory zip file
+    zip_buffer = BytesIO()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+        for file in files:
+            # Get both file paths (Excel and text)
+            filepaths = file.filepath.split(",")
+            
+            if len(filepaths) != 2:
+                continue  # skip invalid entries
+
+            date_folder = file.upload_date.strftime("%Y-%m-%d") if file.upload_date else ""
+            excel_path =Path("processed_excels_esi_new")/date_folder/ Path(filepaths[0]).name
+            text_path =Path("processed_texts_esi_new")/date_folder/ Path(filepaths[1]).name
+            
+            # Add both files to the zip with appropriate names
+            original_name = os.path.splitext(file.filename)[0]
+            zip_dir = f"{date_folder}/{original_name}" if date_folder else original_name
+            if excel_path.exists():
+                zip_file.write(
+                    excel_path, 
+                    f"{zip_dir}/{original_name}.xlsx"
+                )
+            elif Path(filepaths[0]).exists():
+                zip_file.write(Path(filepaths[0]), f"{zip_dir}/{original_name}.xlsx")
+            if text_path.exists():
+                zip_file.write(
+                    text_path, 
+                    f"{zip_dir}/{original_name}.txt"
+                )
+            elif Path(filepaths[1]).exists():
+                zip_file.write(Path(filepaths[1]), f"{zip_dir}/{original_name}.txt")
+    if zipfile.ZipFile(zip_buffer, 'r').testzip() is not None:
+        raise HTTPException(
+            status_code=404,
+            detail="No valid files found for download"
+        )
+    # Return the zip file
+    zip_buffer.seek(0)
+    def cleanup():
+        zip_buffer.close()
+    background_tasks.add_task(cleanup)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            f"Content-Disposition": "attachment; filename=esi_files_bundle_{timestamp}.zip",
+            "Content-Type": "application/zip"
+        },
+        background=background_tasks
+    )
+@app.post("/processed_files_esi/{file_id}/submit_remittance")
+async def submit_remittance(
+    file_id: int,
+    remittance_date: date = Form(...),
+    remittance_file: UploadFile = File(...),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Validate file
+    if not remittance_file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+    
+    # Get the file record
+    file = db.query(ProcessedFileESI).filter(ProcessedFileESI.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Check permissions
+    if current_user.role not in [Role.HR, Role.ADMIN] and file.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You don't have permission to update this file")
+    
+    # Create remittance directory if not exists
+    remittance_dir = Path("remittance_challans") / str(file.upload_date.year) / str(file.upload_date.month)
+    remittance_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate unique filename
+    file_ext = remittance_file.filename.split('.')[-1]
+    new_filename = f"remittance_{file_id}_{uuid.uuid4().hex[:8]}.{file_ext}"
+    file_path = remittance_dir / new_filename
+    
+    # Save the file
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(remittance_file.file, buffer)
+    
+    # Update database record
+    file.remittance_submitted = True
+    file.remittance_date = remittance_date
+    file.remittance_challan_path = str(file_path)
+    db.commit()
+    
+    return {"message": "Remittance submitted successfully", "file_path": str(file_path)}
+@app.get("/processed_files_esi/{file_id}/remittance_challan")
+async def download_remittance_challan(
+    file_id: int,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    file = db.query(ProcessedFileESI).filter(ProcessedFileESI.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not file.remittance_submitted or not file.remittance_challan_path:
+        raise HTTPException(status_code=404, detail="No remittance challan found")
+    
+    # Check permissions
+    if current_user.role not in [Role.HR, Role.ADMIN] and file.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You don't have permission to access this file")
+    
+    if not Path(file.remittance_challan_path).exists():
+        raise HTTPException(status_code=404, detail="Remittance file not found on server")
+    
+    return FileResponse(
+        file.remittance_challan_path,
+        filename=f"remittance_challan_{file_id}.pdf",
+        media_type="application/pdf"
+    )
 @app.get("/dashboard", response_model=DashboardStats)
 async def get_dashboard_stats(
+    year:int =Query(None,description="Filter by specific year"),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -827,7 +1273,14 @@ async def get_dashboard_stats(
     if current_user.role not in [Role.HR, Role.ADMIN]:
         pf_query = pf_query.filter(ProcessedFilePF.user_id == current_user.id)
         esi_query = esi_query.filter(ProcessedFileESI.user_id == current_user.id)
+    if current_user.role not in [Role.HR, Role.ADMIN]:
+        pf_query = pf_query.filter(ProcessedFilePF.user_id == current_user.id)
+        esi_query = esi_query.filter(ProcessedFileESI.user_id == current_user.id)
     
+    # Apply year filter if provided
+    if year:
+        pf_query = pf_query.filter(extract('year', ProcessedFilePF.created_at) == year)
+        esi_query = esi_query.filter(extract('year', ProcessedFileESI.created_at) == year)
     # Get counts for PF files
     pf_total = pf_query.count()
     pf_success = pf_query.filter(ProcessedFilePF.status == "success").count()
@@ -846,30 +1299,108 @@ async def get_dashboard_stats(
     # Get recent files from both tables
     pf_recent = pf_query.order_by(ProcessedFilePF.created_at.desc()).limit(5).all()
     esi_recent = esi_query.order_by(ProcessedFileESI.created_at.desc()).limit(5).all()
-    
+    all_recent = sorted(pf_recent + esi_recent, key=lambda x: x.created_at, reverse=True)[:5]
     # Combine and sort recent files
-    all_recent = pf_recent + esi_recent
-    all_recent_sorted = sorted(all_recent, key=lambda x: x.created_at, reverse=True)[:5]
+    '''all_recent = pf_recent + esi_recent
+    all_recent_sorted = sorted(all_recent, key=lambda x: x.created_at, reverse=True)[:5]'''
+    monthly_data = defaultdict(lambda: {
+        'pf_total': 0,
+        'pf_success': 0,
+        'pf_error': 0,
+        'esi_total': 0,
+        'esi_success': 0,
+        'esi_error': 0,
+        'remittance_submitted': 0
+    })
+    pf_monthly = db.query(
+        extract('month', ProcessedFilePF.created_at).label('month'),
+        func.count().label('total'),
+        func.sum(case((ProcessedFilePF.status == "success", 1), else_=0)).label('success'),
+        func.sum(case((ProcessedFilePF.status == "error", 1), else_=0)).label('error'),
+        func.sum(case((ProcessedFilePF.remittance_submitted == True, 1), else_=0)).label('remittance')
+    ).group_by('month').all()
     
-    # Convert to response models
-    recent_files_response = []
-    for file in all_recent_sorted:
-        if isinstance(file, ProcessedFilePF):
-            recent_files_response.append(ProcessedFileResponse.from_orm(file))
-        else:
-            recent_files_response.append(ProcessedFileResponse.from_orm(file))
+    for month in pf_monthly:
+        monthly_data[month.month]['pf_total'] += month.total
+        monthly_data[month.month]['pf_success'] += month.success
+        monthly_data[month.month]['pf_error'] += month.error
+        monthly_data[month.month]['remittance_submitted'] += month.remittance
+    
+    # Get monthly breakdown for ESI files
+    esi_monthly = db.query(
+        extract('month', ProcessedFileESI.created_at).label('month'),
+        func.count().label('total'),
+        func.sum(case((ProcessedFileESI.status == "success", 1), else_=0)).label('success'),
+        func.sum(case((ProcessedFileESI.status == "error", 1), else_=0)).label('error')
+    ).group_by('month').all()
+    
+    for month in esi_monthly:
+        monthly_data[month.month]['esi_total'] += month.total
+        monthly_data[month.month]['esi_success'] += month.success
+        monthly_data[month.month]['esi_error'] += month.error
+    
+    # Format monthly data for response
+    formatted_monthly = {
+        'labels': ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+        'datasets': {
+            'pf_total': [monthly_data[m]['pf_total'] for m in range(1, 13)],
+            'pf_success': [monthly_data[m]['pf_success'] for m in range(1, 13)],
+            'pf_error': [monthly_data[m]['pf_error'] for m in range(1, 13)],
+            'esi_total': [monthly_data[m]['esi_total'] for m in range(1, 13)],
+            'esi_success': [monthly_data[m]['esi_success'] for m in range(1, 13)],
+            'esi_error': [monthly_data[m]['esi_error'] for m in range(1, 13)],
+            'remittance_submitted': [monthly_data[m]['remittance_submitted'] for m in range(1, 13)]
+        }
+    }
+    
+    # Remittance statistics
+    remittance_stats = {
+        'total_submitted': db.query(ProcessedFilePF)
+                            .filter(ProcessedFilePF.remittance_submitted == True)
+                            .count(),
+        'pending': pf_success - db.query(ProcessedFilePF)
+                                .filter(ProcessedFilePF.remittance_submitted == True)
+                                .count(),
+        'timely_submissions': db.query(ProcessedFilePF)
+                              .filter(
+                                  ProcessedFilePF.remittance_submitted == True,
+                                  ProcessedFilePF.remittance_date <= ProcessedFilePF.created_at + timedelta(days=7)
+                              ).count()
+    }
+    
+    # User activity (only for admins/HR)
+    user_activity = {}
+    if current_user.role in [Role.HR, Role.ADMIN]:
+        active_users = db.query(
+            UserModel.username,
+            func.count(ProcessedFilePF.id).label('pf_files'),
+            func.count(ProcessedFileESI.id).label('esi_files')
+        ).outerjoin(ProcessedFilePF, UserModel.id == ProcessedFilePF.user_id
+        ).outerjoin(ProcessedFileESI, UserModel.id == ProcessedFileESI.user_id
+        ).group_by(UserModel.username).order_by(func.count(ProcessedFilePF.id).desc()).limit(5).all()
+        
+        user_activity = {
+            'top_users': [{'username': u.username, 'pf_files': u.pf_files, 'esi_files': u.esi_files} 
+                         for u in active_users],
+            'total_users': db.query(UserModel).count()
+        }
+    
     
     return DashboardStats(
         total_files=total_files,
         success_files=success_files,
         error_files=error_files,
-        recent_files=recent_files_response,
-         pf_files=pf_total,  # Add breakdown values
+        recent_files=[ProcessedFileResponse.from_orm(f) for f in all_recent],
+        pf_files=pf_total,
         esi_files=esi_total,
         pf_success=pf_success,
         pf_error=pf_error,
         esi_success=esi_success,
-        esi_error=esi_error
+        esi_error=esi_error,
+        monthly_stats=formatted_monthly,
+        remittance_stats=remittance_stats,
+        user_activity=user_activity
     )
 # Function to create the database tables
 def create_db_tables():

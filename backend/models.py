@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, Time, ForeignKey, Text, Enum, create_engine
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, Time, ForeignKey, Text, Enum, create_engine,Date
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
 from enum import Enum as PyEnum
@@ -40,8 +40,12 @@ class ProcessedFilePF(Base):
     filepath = Column(String, nullable=True)
     status = Column(String, nullable=True)
     message = Column(Text, nullable=True)
+    upload_date = Column(Date,nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    remittance_submitted = Column(Boolean, default=False, nullable=False)
+    remittance_date = Column(Date, nullable=True)
+    remittance_challan_path = Column(String, nullable=True)
     user = relationship("UserModel", back_populates="processed_files_pf")
 class ProcessedFileESI(Base):
     __tablename__ = "processed_files_esi"
@@ -51,8 +55,12 @@ class ProcessedFileESI(Base):
     filepath = Column(String, nullable=True)
     status = Column(String, nullable=True)
     message = Column(Text, nullable=True)
+    upload_date = Column(Date,nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    remittance_submitted = Column(Boolean, default=False, nullable=False)
+    remittance_date = Column(Date, nullable=True)
+    remittance_challan_path = Column(String, nullable=True)
     user = relationship("UserModel", back_populates="processed_files_esi")
 UserModel.processed_files_pf = relationship("ProcessedFilePF", back_populates="user")
 UserModel.processed_files_esi = relationship("ProcessedFileESI", back_populates="user")
