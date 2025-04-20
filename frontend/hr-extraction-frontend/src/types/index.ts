@@ -46,6 +46,7 @@ export enum Role {
     remittance_stats: {
       total_submitted: number; // Total remittance submissions
       pending: number; // Pending remittance submissions
+      timely_submissions?: number;
     };
     monthly_stats: {
       labels: string[]; // Array of month names (e.g., ["January", "February"])
@@ -70,8 +71,13 @@ export enum Role {
         pf_files: number; // Number of PF files processed by the user
         esi_files: number; // Number of ESI files processed by the user
       }[];
+      total_users?: number;
     };
-  
+    remittance_delays:{
+      days:number;
+      count:number;
+      type:'PF' | 'ESI';
+    }[];
 
   }
   

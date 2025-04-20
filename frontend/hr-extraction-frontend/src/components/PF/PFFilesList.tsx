@@ -348,7 +348,9 @@ const PFFilesList: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split("T")[0] // Today's date
   );
-  const [uploadingRemittance, setUploadingRemittance] = useState<number | null>(null);
+  const [uploadingRemittance, setUploadingRemittance] = useState<number | null>(
+    null
+  );
   const [remittanceDate, setRemittanceDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
@@ -371,9 +373,7 @@ const PFFilesList: React.FC = () => {
       );
 
       if (!response.ok) {
-        throw new Error(
-          (await response.text()) || "Failed to fetch PF files"
-        );
+        throw new Error((await response.text()) || "Failed to fetch PF files");
       }
 
       const data = await response.json();
@@ -466,7 +466,9 @@ const PFFilesList: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error((await response.text()) || "Remittance download failed");
+        throw new Error(
+          (await response.text()) || "Remittance download failed"
+        );
       }
 
       const blob = await response.blob();
@@ -479,7 +481,9 @@ const PFFilesList: React.FC = () => {
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(a);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Remittance download error");
+      setError(
+        err instanceof Error ? err.message : "Remittance download error"
+      );
     } finally {
       setDownloading(null);
     }
@@ -603,6 +607,9 @@ const PFFilesList: React.FC = () => {
               onChange={(e) => setSelectedDate(e.target.value)}
               className="date-input"
             />
+            <button onClick={fetchFiles} className="refresh-button">
+              Refresh
+            </button>
           </div>
           <input
             type="text"
@@ -700,7 +707,10 @@ const PFFilesList: React.FC = () => {
                     file.remittance_submitted ? (
                       <div className="remittance-info">
                         <span className="status-badge success">
-                          Submitted: {new Date(file.remittance_date || "").toLocaleDateString()}
+                          Submitted:{" "}
+                          {new Date(
+                            file.remittance_date || ""
+                          ).toLocaleDateString()}
                         </span>
                         <button
                           className="download-button small"

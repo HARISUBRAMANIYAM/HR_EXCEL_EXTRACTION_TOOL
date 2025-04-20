@@ -141,11 +141,14 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
+  Label,
   Legend,
   Line,
   LineChart,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -153,7 +156,6 @@ import {
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import { DashboardStats } from "../types";
-
 // Color scheme for charts
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8"];
 
@@ -211,16 +213,42 @@ const Dashboard: React.FC = () => {
   }
 
   // Prepare data for monthly charts
-  const monthlyChartData = stats.monthly_stats.labels.map((month, index) => ({
-    name: month,
-    pfSuccess: stats.monthly_stats.datasets.pf_success[index],
-    pfError: stats.monthly_stats.datasets.pf_error[index],
-    esiSuccess: stats.monthly_stats.datasets.esi_success[index],
-    esiError: stats.monthly_stats.datasets.esi_error[index],
-    remittanceSubmitted:
-      stats.monthly_stats.datasets.remittance_submitted[index],
-  }));
+  const monthlyChartData =
+    stats.monthly_stats?.labels?.map((month, index) => ({
+      name: month,
+      pfSuccess: stats.monthly_stats.datasets.pf_success[index] || 0,
+      pfError: stats.monthly_stats.datasets.pf_error[index] || 0,
+      esiSuccess: stats.monthly_stats.datasets.esi_success[index] || 0,
+      esiError: stats.monthly_stats.datasets.esi_error[index] || 0,
+      remittanceSubmitted:
+        stats.monthly_stats.datasets.remittance_submitted[index] || 0,
+    })) || [];
 
+  const processRemittanceData = () => {
+    if (!stats.remittance_delays || stats.remittance_delays.length === 0) {
+      return [];
+    }
+
+    return stats.remittance_delays
+      .sort((a, b) => a.days - b.days)
+      .reduce((acc: any[], item) => {
+        const existing = acc.find((x) => x.days === item.days);
+        if (existing) {
+          existing[item.type] = (existing[item.type] || 0) + item.count;
+        } else {
+          const newItem = {
+            days: item.days,
+            label: `${item.days} days`,
+            PF: item.type === "PF" ? item.count : 0,
+            ESI: item.type === "ESI" ? item.count : 0,
+          };
+          acc.push(newItem);
+        }
+        return acc;
+      }, []);
+  };
+
+  const remittanceTimelineData = processRemittanceData();
   // Data for pie charts
   const pfStatusData = [
     { name: "Success", value: stats.pf_success },
@@ -280,7 +308,9 @@ const Dashboard: React.FC = () => {
           </p>
           <p className="stat-subtext">
             {Math.round(
-              (stats.remittance_stats.total_submitted / (stats.pf_success ?? 1)) * 100
+              (stats.remittance_stats.total_submitted /
+                (stats.pf_success ?? 1)) *
+                100
             ) || 0}
             % completed
           </p>
@@ -409,6 +439,55 @@ const Dashboard: React.FC = () => {
               <Tooltip />
             </PieChart>
           </ResponsiveContainer>
+        </div>
+      </div>
+      <div className="chart-row">
+        <div className="chart-container">
+          <h3>Remittance Submission Timeline</h3>
+          {remittanceTimelineData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={400}>
+              <ComposedChart data={remittanceTimelineData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="days">
+                  <Label
+                    value="Days After Upload"
+                    offset={-5}
+                    position="insideBottomRight"
+                  />
+                </XAxis>
+                <YAxis>
+                  <Label
+                    value="Number of Submissions"
+                    angle={-90}
+                    position="insideLeft"
+                  />
+                </YAxis>
+                <Tooltip
+                  formatter={(value: any, name: any) => [
+                    `${value} submissions`,
+                    name,
+                  ]}
+                  labelFormatter={(label) => `${label} days after upload`}
+                />
+                <Legend />
+                <Bar
+                  dataKey="PF"
+                  fill="#4CAF50"
+                  name="PF Submissions"
+                  barSize={20}
+                />
+                <Bar
+                  dataKey="ESI"
+                  fill="#2196F3"
+                  name="ESI Submissions"
+                  barSize={20}
+                />
+                <ReferenceLine x={7} stroke="red" label="1 Week" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <p>No remittance submission data available</p>
+          )}
         </div>
       </div>
 

@@ -1385,8 +1385,43 @@ async def get_dashboard_stats(
                          for u in active_users],
             'total_users': db.query(UserModel).count()
         }
+    remittance_delays_pf = db.query(
+        func.cast(
+            func.julianday(ProcessedFilePF.remittance_date) - func.julianday(ProcessedFilePF.created_at),
+            Integer
+        ).label('delay_days'),
+        func.count().label('count')
+    ).filter(
+        ProcessedFilePF.remittance_submitted == True,
+        ProcessedFilePF.remittance_date.isnot(None)
+    ).group_by('delay_days').all()
+
+    remittance_delays_esi = db.query(
+        func.cast(
+            func.julianday(ProcessedFileESI.remittance_date) - func.julianday(ProcessedFileESI.created_at),
+            Integer
+        ).label('delay_days'),
+        func.count().label('count')
+    ).filter(
+        ProcessedFileESI.remittance_submitted == True,
+        ProcessedFileESI.remittance_date.isnot(None)
+    ).group_by('delay_days').all()
+
+    # Combine results with type indicators
+    delay_data = []
+    for d in remittance_delays_pf:
+        delay_data.append({
+            'days': int(d.delay_days),
+            'count': d.count,
+            'type': 'PF'
+        })
     
-    
+    for d in remittance_delays_esi:
+        delay_data.append({
+            'days': int(d.delay_days),
+            'count': d.count,
+            'type': 'ESI'
+        })
     return DashboardStats(
         total_files=total_files,
         success_files=success_files,
@@ -1400,8 +1435,8 @@ async def get_dashboard_stats(
         esi_error=esi_error,
         monthly_stats=formatted_monthly,
         remittance_stats=remittance_stats,
-        user_activity=user_activity
-    )
+        user_activity=user_activity,
+        remittance_delays  = delay_data)
 # Function to create the database tables
 def create_db_tables():
     Base.metadata.create_all(bind=engine)
