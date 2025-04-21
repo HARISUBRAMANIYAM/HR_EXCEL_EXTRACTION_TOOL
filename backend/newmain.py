@@ -109,6 +109,18 @@ async def read_users_me(current_user: UserModel = Depends(get_current_user)):
     return current_user
 
 
+@app.get("/users")
+async def read_users(
+    current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    result = []
+    data = db.query(UserModel).all()
+    for row in data:
+        user = {"id":row.id,"name": row.username}
+        result.append(user)
+    return result
+
+
 @app.post("/process_folder_pf", response_model=FileProcessResult)
 async def process_folder(
     folder_path: str = Form(..., min_length=3, max_length=500),
@@ -482,7 +494,7 @@ async def submit_remittance(
 @app.get("/processed_files_pf/{file_id}/remittance_challan")
 async def download_remittance_challan(
     file_id: int,
-    current_user: UserModel = Depends(require_admin),
+    current_user: UserModel = Depends(require_hr_or_admin),
     db: Session = Depends(get_db),
 ):
     file = db.query(ProcessedFilePF).filter(ProcessedFilePF.id == file_id).first()
@@ -1119,7 +1131,9 @@ async def list_esi_directory_files(
 @app.get("/processed_files_esi", response_model=List[ProcessedFileResponse])
 async def get_processed_files_esi(
     upload_date: date = Query(..., description="Date of upload in YYYY-MM-DD format"),
-    user_id: Optional[int] = Query(None, description="Specific user ID to filter by (Admin only)"),
+    user_id: Optional[int] = Query(
+        None, description="Specific user ID to filter by (Admin only)"
+    ),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1131,7 +1145,7 @@ async def get_processed_files_esi(
             query = query.filter(ProcessedFileESI.user_id == user_id)
     else:
         query = query.filter(ProcessedFileESI.user_id == current_user.id)
-    
+
     files = query.order_by(ProcessedFileESI.created_at.desc()).all()
     valid_files = []
     for file in files:
@@ -1145,6 +1159,7 @@ async def get_processed_files_esi(
         else:
             valid_files.append(file)
     return [ProcessedFileResponse.from_orm(file) for file in valid_files]
+
 
 @app.get("/processed_files_esi/{file_id}/download")
 async def download_esi_file(
