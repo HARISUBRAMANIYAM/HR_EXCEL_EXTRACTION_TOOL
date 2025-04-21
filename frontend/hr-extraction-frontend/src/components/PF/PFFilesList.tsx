@@ -1,324 +1,3 @@
-// // export default PFFilesList;
-// import React, { useEffect, useState } from "react";
-// import { useAuth } from "../../context/AuthContext";
-// import { ProcessedFile } from "../../types";
-
-// interface PFFile extends ProcessedFile {
-//   uan_no?: string;
-//   member_name?: string;
-// }
-
-// const PFFilesList: React.FC = () => {
-//   const { token } = useAuth();
-//   const [files, setFiles] = useState<PFFile[]>([]);
-//   const [loading, setLoading] = useState(true);
-//   const [error, setError] = useState("");
-//   const [downloading, setDownloading] = useState<string | null>(null);
-//   const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
-//   const [selectAll, setSelectAll] = useState(false);
-//   const [sortConfig, setsortConfig] = useState<{
-//     key: "filename" | "created_at";
-//     direction: "asc" | "desc";
-//   } | null>(null);
-//   const [searchQuery, setSearchQuery] = useState("");
-
-//   useEffect(() => {
-//     const fetchFiles = async () => {
-//       try {
-//         setLoading(true);
-//         setError("");
-
-//         const response = await fetch(
-//           "http://localhost:8000/processed_files_pf",
-//           {
-//             headers: { Authorization: `Bearer ${token}` },
-//           }
-//         );
-
-//         if (!response.ok) {
-//           throw new Error(
-//             (await response.text()) || "Failed to fetch PF files"
-//           );
-//         }
-
-//         const data = await response.json();
-//         setFiles(data);
-//       } catch (err) {
-//         setError(err instanceof Error ? err.message : "Failed to load files");
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-
-//     fetchFiles();
-//   }, [token]);
-
-//   const handleDownload = async (
-//     fileId: string,
-//     fileType: "xlsx" | "txt" = "xlsx"
-//   ) => {
-//     try {
-//       setDownloading(fileId);
-//       setError("");
-
-//       const url = `http://localhost:8000/processed_files_pf/${fileId}/download?file_type=${fileType}`;
-//       const response = await fetch(url, {
-//         headers: { Authorization: `Bearer ${token}` },
-//       });
-
-//       if (!response.ok) {
-//         throw new Error((await response.text()) || "Download failed");
-//       }
-
-//       const blob = await response.blob();
-//       const downloadUrl = window.URL.createObjectURL(blob);
-//       const a = document.createElement("a");
-//       a.href = downloadUrl;
-//       a.download = `pf_report_${fileId}.${fileType}`;
-//       document.body.appendChild(a);
-//       a.click();
-//       window.URL.revokeObjectURL(downloadUrl);
-//       document.body.removeChild(a);
-//     } catch (err) {
-//       setError(err instanceof Error ? err.message : "Download error");
-//     } finally {
-//       setDownloading(null);
-//     }
-//   };
-
-//   const handleBatchDownload = async () => {
-//     if (selectedFiles.length === 0) {
-//       setError("Please select at least one file to download");
-//       return;
-//     }
-
-//     setError("");
-//     try {
-//       const fileIdsParam = selectedFiles.join(",");
-//       const url = `http://localhost:8000/processed_files_pf/batch_download?file_ids=${fileIdsParam}`;
-//       const response = await fetch(url, {
-//         headers: {
-//           Authorization: `Bearer ${token}`,
-//         },
-//       });
-
-//       if (!response.ok) {
-//         throw new Error(`Failed to download files: ${response.statusText}`);
-//       }
-
-//       const blob = await response.blob();
-//       const downloadUrl = window.URL.createObjectURL(blob);
-//       const a = document.createElement("a");
-//       a.href = downloadUrl;
-//       a.download = `pf_files_bundle_${new Date()
-//         .toISOString()
-//         .slice(0, 10)}.zip`;
-//       document.body.appendChild(a);
-//       a.click();
-//       window.URL.revokeObjectURL(downloadUrl);
-//       a.remove();
-//     } catch (err) {
-//       setError(err instanceof Error ? err.message : "Batch download failed");
-//     }
-//   };
-
-//   const toggleFileSelection = (fileId: number) => {
-//     setSelectedFiles((prev) =>
-//       prev.includes(fileId)
-//         ? prev.filter((id) => id !== fileId)
-//         : [...prev, fileId]
-//     );
-//   };
-
-//   const handleSelectAll = () => {
-//     if (selectAll) {
-//       setSelectedFiles([]);
-//     } else {
-//       const allSuccessFileIds = files
-//         .filter((file) => file.status === "success")
-//         .map((file) => file.id);
-//       setSelectedFiles(allSuccessFileIds);
-//     }
-//     setSelectAll(!selectAll);
-//   };
-//   const filteredandSortedFiles = [...files]
-//     .filter((file) =>
-//       file.filename?.toLowerCase().includes(searchQuery.toLowerCase())
-//     )
-//     .sort((a, b) => {
-//       if (!sortConfig) return 0;
-//       const { key, direction } = sortConfig;
-//       const aValue = a[key] || "";
-//       const bValue = b[key] || "";
-
-//       if (key === "created_at") {
-//         const aDate = new Date(aValue).getTime();
-//         const bDate = new Date(bValue).getTime();
-//         return direction === "asc" ? aDate - bDate : bDate - aDate;
-//       }
-
-//       const comparison = (aValue as string)
-//         .toLowerCase()
-//         .localeCompare((bValue as string).toLowerCase());
-//       return direction === "asc" ? comparison : -comparison;
-//     });
-//   const handleSort = (key: "filename" | "created_at") => {
-//     setsortConfig((prev) => {
-//       if (prev?.key === key) {
-//         return {
-//           key,
-//           direction: prev.direction === "asc" ? "desc" : "asc",
-//         };
-//       }
-//       return { key, direction: "asc" };
-//     });
-//   };
-
-//   if (loading) {
-//     return (
-//       <div className="loading-container">
-//         <p>Loading PF files...</p>
-//         <div className="loading-spinner"></div>
-//       </div>
-//     );
-//   }
-
-//   if (error) {
-//     return (
-//       <div className="error-container">
-//         <p className="error-message">{error}</p>
-//         <button
-//           className="download-button"
-//           onClick={() => window.location.reload()}
-//         >
-//           Retry
-//         </button>
-//       </div>
-//     );
-//   }
-
-//   return (
-//     <div className="files-container">
-//       <div className="file-header">
-//         <div className="controls-container">
-//           <input
-//             type="text"
-//             placeholder="Search by filename..."
-//             value={searchQuery}
-//             onChange={(e) => setSearchQuery(e.target.value)}
-//             className="search-input"
-//           />
-//         </div>
-//         <h1 style={{font:"bold"}}>Processed PF Files</h1>
-//         <div className="actions-container">
-//           <div className="select-all-container">
-//             <input
-//               type="checkbox"
-//               id="select-all-pf"
-//               checked={selectAll}
-//               onChange={handleSelectAll}
-//             />
-//             <label htmlFor="select-all-pf">Select All</label>
-//           </div>
-//           {selectedFiles.length > 0 && (
-//             <button
-//               className="batch-download-button"
-//               onClick={handleBatchDownload}
-//               disabled={selectedFiles.length === 0}
-//             >
-//               Download Selected ({selectedFiles.length})
-//             </button>
-//           )}
-//         </div>
-//       </div>
-
-//       {files.length === 0 ? (
-//         <p className="no-files">No PF files processed yet</p>
-//       ) : (
-//         <table className="files-table">
-//           <thead>
-//             <tr>
-//               <th></th>
-//               <th
-//                 onClick={() => handleSort("filename")}
-//                 style={{ cursor: "pointer" }}
-//               >
-//                 Filename{" "}
-//                 {sortConfig?.key === "filename"
-//                   ? sortConfig.direction === "asc"
-//                     ? "▲"
-//                     : "▼"
-//                   : ""}
-//               </th>
-//               <th>Status</th>
-//               <th
-//                 onClick={() => handleSort("created_at")}
-//                 style={{ cursor: "pointer" }}
-//               >
-//                 Processed Date{" "}
-//                 {sortConfig?.key === "created_at"
-//                   ? sortConfig.direction === "asc"
-//                     ? "▲"
-//                     : "▼"
-//                   : ""}
-//               </th>
-//               <th>Actions</th>
-//             </tr>
-//           </thead>
-//           <tbody>
-//             {filteredandSortedFiles.map((file) => (
-//               <tr key={`pf-${file.id}`} className={file.status}>
-//                 <td>
-//                   <input
-//                     type="checkbox"
-//                     checked={selectedFiles.includes(file.id)}
-//                     onChange={() => toggleFileSelection(file.id)}
-//                     disabled={file.status !== "success"}
-//                     aria-label="selectfile"
-//                   />
-//                 </td>
-//                 <td>{file.filename || "N/A"}</td>
-//                 <td>
-//                   <span className={`status-badge ${file.status}`}>
-//                     {file.status.toUpperCase()}
-//                   </span>
-//                 </td>
-//                 <td>{new Date(file.created_at).toLocaleString()}</td>
-//                 <td className="actions">
-//                   {file.status === "success" ? (
-//                     <div className="download-buttons">
-//                       <button
-//                         className="download-button"
-//                         onClick={() => handleDownload(String(file.id), "xlsx")}
-//                         disabled={downloading === String(file.id)}
-//                       >
-//                         {downloading === String(file.id)
-//                           ? "Downloading..."
-//                           : "Excel"}
-//                       </button>
-//                       <button
-//                         className="download-button"
-//                         onClick={() => handleDownload(String(file.id), "txt")}
-//                         disabled={downloading === String(file.id)}
-//                       >
-//                         {downloading === String(file.id)
-//                           ? "Downloading..."
-//                           : "Text"}
-//                       </button>
-//                     </div>
-//                   ) : (
-//                     <span className="error-message">{file.message}</span>
-//                   )}
-//                 </td>
-//               </tr>
-//             ))}
-//           </tbody>
-//         </table>
-//       )}
-//     </div>
-//   );
-// };
-
 // export default PFFilesList;
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
@@ -330,10 +9,11 @@ interface PFFile extends ProcessedFile {
   remittance_submitted?: boolean;
   remittance_date?: string;
   remittance_challan_path?: string;
+  upload_date?: string; // Add this field to match backend
 }
 
 const PFFilesList: React.FC = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth(); // Assume user object contains role information
   const [files, setFiles] = useState<PFFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -345,7 +25,7 @@ const PFFilesList: React.FC = () => {
     direction: "asc" | "desc";
   } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedDate, setSelectedDate] = useState<string>(
+  const [uploadDate, setUploadDate] = useState<string>(
     new Date().toISOString().split("T")[0] // Today's date
   );
   const [uploadingRemittance, setUploadingRemittance] = useState<number | null>(
@@ -355,22 +35,28 @@ const PFFilesList: React.FC = () => {
     new Date().toISOString().split("T")[0]
   );
   const [remittanceFile, setRemittanceFile] = useState<File | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null); // For admin filtering
 
   useEffect(() => {
     fetchFiles();
-  }, [token, selectedDate]);
+  }, [token, uploadDate, selectedUserId]);
 
   const fetchFiles = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const response = await fetch(
-        `http://localhost:8000/processed_files_pf?upload_date=${selectedDate}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      // Build the URL with required upload_date parameter
+      let url = `http://localhost:8000/processed_files_pf?upload_date=${uploadDate}`;
+
+      // Add user_id parameter if admin and a user is selected
+      if (user?.role === "admin" && selectedUserId) {
+        url += `&user_id=${selectedUserId}`;
+      }
+
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!response.ok) {
         throw new Error((await response.text()) || "Failed to fetch PF files");
@@ -445,7 +131,7 @@ const PFFilesList: React.FC = () => {
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
-      a.download = `pf_files_bundle_${selectedDate}.zip`;
+      a.download = `pf_files_bundle_${uploadDate}.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
@@ -455,6 +141,7 @@ const PFFilesList: React.FC = () => {
     }
   };
 
+  // Other handlers remain the same
   const handleRemittanceDownload = async (fileId: number) => {
     try {
       setDownloading(`remittance-${fileId}`);
@@ -487,6 +174,7 @@ const PFFilesList: React.FC = () => {
     } finally {
       setDownloading(null);
     }
+    // Implementation unchanged
   };
 
   const handleUploadRemittance = async (fileId: number) => {
@@ -529,6 +217,7 @@ const PFFilesList: React.FC = () => {
     } finally {
       setUploadingRemittance(null);
     }
+    // Implementation unchanged
   };
 
   const toggleFileSelection = (fileId: number) => {
@@ -537,6 +226,7 @@ const PFFilesList: React.FC = () => {
         ? prev.filter((id) => id !== fileId)
         : [...prev, fileId]
     );
+    // Implementation unchanged
   };
 
   const handleSelectAll = () => {
@@ -549,6 +239,7 @@ const PFFilesList: React.FC = () => {
       setSelectedFiles(allSuccessFileIds);
     }
     setSelectAll(!selectAll);
+    // Implementation unchanged
   };
 
   const filteredAndSortedFiles = [...files]
@@ -574,6 +265,7 @@ const PFFilesList: React.FC = () => {
     });
 
   const handleSort = (key: "filename" | "created_at") => {
+    // Implementation unchanged
     setSortConfig((prev) => {
       if (prev?.key === key) {
         return {
@@ -603,10 +295,29 @@ const PFFilesList: React.FC = () => {
             <input
               type="date"
               id="date-selector"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              value={uploadDate}
+              onChange={(e) => setUploadDate(e.target.value)}
               className="date-input"
             />
+            {/* Add user selector for Admin role */}
+            {user?.role && user.role === "admin" && (
+              <div className="user-selector">
+                <label htmlFor="user-selector">User:</label>
+                <select
+                  id="user-selector"
+                  value={selectedUserId || ""}
+                  onChange={(e) =>
+                    setSelectedUserId(
+                      e.target.value ? parseInt(e.target.value) : null
+                    )
+                  }
+                  className="user-select"
+                >
+                  <option value="">All Users</option>
+                  {/* Add options dynamically from users list if available */}
+                </select>
+              </div>
+            )}
             <button onClick={fetchFiles} className="refresh-button">
               Refresh
             </button>
