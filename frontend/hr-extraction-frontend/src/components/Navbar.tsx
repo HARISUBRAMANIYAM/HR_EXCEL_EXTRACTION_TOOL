@@ -3,7 +3,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-
 const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -18,6 +17,7 @@ const Navbar: React.FC = () => {
       <div className="navbar-brand">
         <Link to="/">HR Extraction Tool</Link>
       </div>
+      <div className="navbar-start" style={{ margin: "flex-right" }}></div>
 
       {user && (
         <div className="navbar-menu">
@@ -50,9 +50,14 @@ const Navbar: React.FC = () => {
             </button>
           </div>
         ) : (
-          <Link to="/login" className="login-button">
-            Login
-          </Link>
+          <>
+            <Link to="/login" className="login-button">
+              Login
+            </Link>
+            <Link to="/change_pass" className="login-button"
+            >Change Password
+            </Link>
+          </>
         )}
       </div>
     </nav>

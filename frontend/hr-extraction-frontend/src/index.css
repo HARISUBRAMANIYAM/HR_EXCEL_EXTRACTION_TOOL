@@ -1653,3 +1653,16 @@ input[type="file"]:focus {
     border-color: #333;
   }
 }
+/* Add to your CSS file */
+.Toastify__toast--success {
+  background: #4caf50 !important;
+}
+.Toastify__toast--error {
+  background: #f44336 !important;
+}
+.Toastify__toast--warning {
+  background: #ff9800 !important;
+}
+.Toastify__toast--info {
+  background: #2196f3 !important;
+}

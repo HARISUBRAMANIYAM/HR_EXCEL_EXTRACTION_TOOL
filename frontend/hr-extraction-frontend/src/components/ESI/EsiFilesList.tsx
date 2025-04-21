@@ -1,9 +1,9 @@
 // export default EsiFilesList;
 import React, { useEffect, useState } from "react";
 import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "../../context/AuthContext";
 import { ProcessedFile } from "../../types";
-
 interface ESIFile extends ProcessedFile {
   remittance_submitted?: boolean;
   remittance_date?: string;
@@ -46,6 +46,7 @@ const EsiFilesList: React.FC = () => {
     try {
       setLoading(true);
       setError("");
+      toast.info("Loading ESI files...", { autoClose: 2000 });
 
       // Build the URL with required upload_date parameter
       let url = `http://localhost:8000/processed_files_esi?upload_date=${uploadDate}`;
@@ -68,14 +69,14 @@ const EsiFilesList: React.FC = () => {
       const data: ESIFile[] = await response.json();
       setFiles(data);
       // Reset selections when data changes
+      toast.success("ESI files loaded successfully");
       setSelectedFiles([]);
       setSelectAll(false);
     } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("An unexpected error occurred");
-      }
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load files";
+      toast.error(errorMessage);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -87,6 +88,7 @@ const EsiFilesList: React.FC = () => {
   }, [user]);
   const fetchUsers = async () => {
     try {
+      toast.info("Loading user list...", { autoClose: 1500 });
       const response = await fetch("http://localhost:8000/users", {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -99,7 +101,10 @@ const EsiFilesList: React.FC = () => {
       console.log(data);
       setUsers(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load users");
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load users";
+      toast.error(errorMessage);
+      setError(errorMessage);
     }
   };
   const handleDownload = async (
@@ -110,6 +115,7 @@ const EsiFilesList: React.FC = () => {
     try {
       setDownloading(fileId);
       setError("");
+      toast.info(`Downloading ${fileType.toUpperCase()} file...`);
 
       let url = `http://localhost:8000/processed_files_esi/${fileId}/download${
         fileType ? `?file_type=${fileType}` : ""
@@ -137,12 +143,14 @@ const EsiFilesList: React.FC = () => {
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(a);
+      toast.success(`Downloaded: ${filename.split(".")[0]}_esi.${fileType}`);
     } catch (err) {
-      if (err instanceof Error) {
-        setError(`Download failed: ${err.message}`);
-      } else {
-        setError("An unexpected error occurred during download");
-      }
+      const errorMessage =
+        err instanceof Error
+          ? `Download failed: ${err.message}`
+          : "Download error";
+      toast.error(errorMessage);
+      setError(errorMessage);
     } finally {
       setDownloading(null);
     }
@@ -150,12 +158,14 @@ const EsiFilesList: React.FC = () => {
 
   const handleBatchDownload = async () => {
     if (selectedFiles.length === 0) {
+      toast.warn("Please select files to download");
       setError("Please select at least one file to download");
       return;
     }
 
     setError("");
     try {
+      toast.info(`Preparing ${selectedFiles.length} file(s) for download...`);
       const fileIdsParam = selectedFiles.join(",");
       const url = `http://localhost:8000/processed_files_esi/batch_download?file_ids=${fileIdsParam}`;
       const response = await fetch(url, {
@@ -177,12 +187,14 @@ const EsiFilesList: React.FC = () => {
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
       a.remove();
+      toast.success(
+        `Downloaded ${selectedFiles.length} file(s) as esi_files_${uploadDate}.zip`
+      );
     } catch (err) {
-      if (err instanceof Error) {
-        setError(`Batch download failed: ${err.message}`);
-      } else {
-        setError("An unexpected error occurred during batch download");
-      }
+      const errorMessage =
+        err instanceof Error ? err.message : "Batch download failed";
+      toast.error(errorMessage);
+      setError(errorMessage);
     }
   };
 
@@ -220,12 +232,14 @@ const EsiFilesList: React.FC = () => {
 
   const handleRemittanceUpload = async (fileId: number) => {
     if (!remittanceFile) {
+      toast.error("Please select a remittance file");
       setError("Please select a remittance file");
       return;
     }
 
     try {
       setUploadingRemittance(fileId);
+      const toastId = toast.loading("Uploading remittance...");
       setError("");
 
       const formData = new FormData();
@@ -242,9 +256,12 @@ const EsiFilesList: React.FC = () => {
           body: formData,
         }
       );
-      setTimeout(() => {
-        toast.success("Remittance uploaded successfully");
-      }, 1000);
+      toast.update(toastId, {
+        render: "Remittance uploaded successfully!",
+        type: "success",
+        isLoading: false,
+        autoClose: 3000,
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -256,11 +273,9 @@ const EsiFilesList: React.FC = () => {
       // Close the upload form
       setUploadingRemittance(null);
     } catch (err) {
-      if (err instanceof Error) {
-        setError(`Remittance upload failed: ${err.message}`);
-      } else {
-        setError("An unexpected error occurred during remittance upload");
-      }
+      const errorMessage = err instanceof Error ? err.message : "Upload failed";
+      toast.error(errorMessage);
+      setError(errorMessage);
     } finally {
       setUploadingRemittance(null);
     }
@@ -269,6 +284,7 @@ const EsiFilesList: React.FC = () => {
   const downloadRemittanceChallan = async (fileId: number) => {
     try {
       setDownloading(`remittance-${fileId}`);
+      toast.info("Downloading remittance challan...");
       setError("");
 
       const response = await fetch(
@@ -293,12 +309,12 @@ const EsiFilesList: React.FC = () => {
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(a);
+      toast.success("Remittance challan downloaded");
     } catch (err) {
-      if (err instanceof Error) {
-        setError(`Challan download failed: ${err.message}`);
-      } else {
-        setError("An unexpected error occurred during challan download");
-      }
+      const errorMessage =
+        err instanceof Error ? err.message : "Challan download failed";
+      toast.error(errorMessage);
+      setError(errorMessage);
     } finally {
       setDownloading(null);
     }
@@ -337,7 +353,18 @@ const EsiFilesList: React.FC = () => {
 
   return (
     <>
-      <ToastContainer position="top-right" />
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="colored"
+      />
       <div className="files-container">
         <div className="file-header">
           <div className="controls-container">

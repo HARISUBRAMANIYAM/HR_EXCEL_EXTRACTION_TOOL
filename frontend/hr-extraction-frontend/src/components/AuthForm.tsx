@@ -108,7 +108,7 @@ const AuthForm: React.FC = () => {
             maxLength={100}
           />
         </div>
-
+        
         {!isLogin && (
           <>
             <div className="form-group">

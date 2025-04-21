@@ -8,6 +8,7 @@ import {
   Routes,
 } from "react-router-dom";
 import AuthForm from "./components/AuthForm";
+import PasswordForm from "./components/ChangePass";
 import Dashboard from "./components/Dashboard";
 import ErrorBoundary from "./components/Error/ErrorBoundary";
 import ProtectedRoute from "./components/Error/ProtectedRoute";
@@ -72,6 +73,7 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
+        <Route path="/change_pass" element={<PasswordForm />} />
         <Route
           path="/"
           element={<Navigate to={user ? "/dashboard" : "/login"} />}

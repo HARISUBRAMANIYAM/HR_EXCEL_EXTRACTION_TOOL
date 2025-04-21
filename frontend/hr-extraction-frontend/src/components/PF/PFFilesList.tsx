@@ -48,6 +48,7 @@ const PFFilesList: React.FC = () => {
   }, [user]);
   const fetchUsers = async () => {
     try {
+      toast.info("Loading user list...", { autoClose: 1500 });
       const response = await fetch("http://localhost:8000/users", {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -60,14 +61,17 @@ const PFFilesList: React.FC = () => {
       console.log(data);
       setUsers(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load users");
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load users";
+      toast.error(errorMessage);
+      setError(errorMessage);
     }
   };
   const fetchFiles = async () => {
     try {
       setLoading(true);
       setError("");
-
+      toast.info("Loading PF files...", { autoClose: 2000 });
       // Build the URL with required upload_date parameter
       let url = `http://localhost:8000/processed_files_pf?upload_date=${uploadDate}`;
 
@@ -87,10 +91,14 @@ const PFFilesList: React.FC = () => {
       const data = await response.json();
       setFiles(data);
       // Reset selections when data changes
+      toast.success("PF files loaded successfully", { autoClose: 3000 });
       setSelectedFiles([]);
       setSelectAll(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load files");
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load files";
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -131,12 +139,14 @@ const PFFilesList: React.FC = () => {
 
   const handleBatchDownload = async () => {
     if (selectedFiles.length === 0) {
+      toast.warning("Please select at least one file to download");
       setError("Please select at least one file to download");
       return;
     }
 
     setError("");
     try {
+      toast.info(`Preparing ${selectedFiles.length} files for download...`);
       const fileIdsParam = selectedFiles.join(",");
       const url = `http://localhost:8000/processed_files_pf/batch_download?file_ids=${fileIdsParam}`;
       const response = await fetch(url, {
@@ -158,8 +168,12 @@ const PFFilesList: React.FC = () => {
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
       a.remove();
+      toast.success(`Downloaded ${selectedFiles.length} files successfully`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Batch download failed");
+      const errorMessage =
+        err instanceof Error ? err.message : "Batch download failed";
+      toast.error(errorMessage);
+      setError(errorMessage);
     }
   };
 
@@ -167,6 +181,7 @@ const PFFilesList: React.FC = () => {
   const handleRemittanceDownload = async (fileId: number) => {
     try {
       setDownloading(`remittance-${fileId}`);
+      toast.info("Downloading remittance challan...");
       setError("");
 
       const url = `http://localhost:8000/processed_files_pf/${fileId}/remittance_challan`;
@@ -189,6 +204,7 @@ const PFFilesList: React.FC = () => {
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(a);
+      toast.success("Remittance challan downloaded");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Remittance download error"
@@ -201,12 +217,14 @@ const PFFilesList: React.FC = () => {
 
   const handleUploadRemittance = async (fileId: number) => {
     if (!remittanceFile || !remittanceDate) {
+      toast.warning("Please select a remittance file and date");
       setError("Please select a remittance file and date");
       return;
     }
 
     try {
       setUploadingRemittance(fileId);
+      toast.info("Uploading remittance file...");
       setError("");
 
       const formData = new FormData();
@@ -233,12 +251,16 @@ const PFFilesList: React.FC = () => {
 
       await response.json();
       // Refresh the file list to show updated remittance status
+      toast.success("Remittance uploaded successfully");
       fetchFiles();
       setRemittanceFile(null);
       // Close the upload form
       setUploadingRemittance(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Remittance upload error");
+      const errorMessage =
+        err instanceof Error ? err.message : "Remittance upload failed";
+      toast.error(errorMessage);
+      setError(errorMessage);
     } finally {
       setUploadingRemittance(null);
     }
@@ -313,7 +335,19 @@ const PFFilesList: React.FC = () => {
 
   return (
     <>
-      <ToastContainer position="top-right" />
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="colored"
+      />
+
       <div className="files-container">
         <div className="file-header">
           <div className="controls-container">

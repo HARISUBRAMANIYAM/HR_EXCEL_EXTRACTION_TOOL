@@ -104,6 +104,33 @@ async def login_user(
     return Token(access_token=access_token, token_type="bearer")
 
 
+@app.put("/change_pass", response_model=MessageResponse)
+async def change_password(
+    password_data: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+):
+    user = db.query(UserModel).filter(UserModel.username == password_data.username).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    if not verify_password(password_data.current_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    if len(password_data.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters",
+        )
+    user.hashed_password= hash_password(password_data.new_password)
+    user.updated_at = datetime.utcnow()
+    db.commit()
+    return {"message": "Passsword changed sucessfully"}
+
+
 @app.get("/users/me", response_model=UserResponse)
 async def read_users_me(current_user: UserModel = Depends(get_current_user)):
     return current_user
@@ -116,7 +143,7 @@ async def read_users(
     result = []
     data = db.query(UserModel).all()
     for row in data:
-        user = {"id":row.id,"name": row.username}
+        user = {"id": row.id, "name": row.username}
         result.append(user)
     return result
 
