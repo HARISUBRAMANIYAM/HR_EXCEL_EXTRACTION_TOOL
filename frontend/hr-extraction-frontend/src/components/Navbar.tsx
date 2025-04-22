@@ -25,7 +25,7 @@ const Navbar: React.FC = () => {
             Dashboard
           </Link>
           <Link to="/pf-files" className="navbar-item">
-            PF Files
+            PF Remittance
           </Link>
           <Link to="/pf-upload" className="navbar-item">
             PF Upload
@@ -34,7 +34,7 @@ const Navbar: React.FC = () => {
             ESI Upload
           </Link>
           <Link to="/esi-files" className="navbar-item">
-            ESI FILES
+            ESI Remittance
           </Link>
         </div>
       )}

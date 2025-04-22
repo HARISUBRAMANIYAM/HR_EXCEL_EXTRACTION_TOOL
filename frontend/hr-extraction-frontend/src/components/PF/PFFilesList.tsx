@@ -327,7 +327,7 @@ const PFFilesList: React.FC = () => {
   if (loading) {
     return (
       <div className="loading-container">
-        <p>Loading PF files...</p>
+        <p>Loading PF Remittance...</p>
         <div className="loading-spinner"></div>
       </div>
     );
@@ -397,7 +397,7 @@ const PFFilesList: React.FC = () => {
               className="search-input"
             />
           </div>
-          <h1 style={{ fontWeight: "bold" }}>Processed PF Files</h1>
+          <h1 style={{ fontWeight: "bold" }}>Processed PF Remittance</h1>
           <div className="actions-container">
             <div className="select-all-container">
               <input
@@ -428,7 +428,7 @@ const PFFilesList: React.FC = () => {
         )}
 
         {files.length === 0 ? (
-          <p className="no-files">No PF files found for this date</p>
+          <p className="no-files">No PF Remittance found for this date</p>
         ) : (
           <table className="files-table">
             <thead>

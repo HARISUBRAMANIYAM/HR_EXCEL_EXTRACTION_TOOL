@@ -99,7 +99,7 @@ const PFUpload: React.FC = () => {
         theme="colored"
       />
       <div className="pf-upload-container">
-        <h1>Upload PF Files</h1>
+        <h1>Upload PF Remittance</h1>
 
         <form onSubmit={handleSubmit} className="pf-upload-form">
           <div className="form-group">
@@ -121,7 +121,7 @@ const PFUpload: React.FC = () => {
 
           <div className="form-group">
             <label htmlFor="pfFolderPath">
-              PF Files Folder Path
+              PF Remittance Folder Path
               <span className="required">*</span>
             </label>
             <input
@@ -185,7 +185,7 @@ const PFUpload: React.FC = () => {
         )}
 
         <div className="instructions">
-          <h3>PF File Requirements</h3>
+          <h3>PF Remittance Requirements</h3>
           <ul>
             <li>Excel files (.xlsx, .xls) containing PF data</li>
             <li>
@@ -209,7 +209,7 @@ const PFUpload: React.FC = () => {
               </ul>
             </li>
             <li>All Excel files should be in the specified folder</li>
-            <li>Folder should contain only relevant PF files</li>
+            <li>Folder should contain only relevant PF Remittance</li>
           </ul>
         </div>
       </div>

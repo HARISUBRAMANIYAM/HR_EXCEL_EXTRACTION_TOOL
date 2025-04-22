@@ -14,7 +14,6 @@ const AuthForm: React.FC = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -108,7 +107,7 @@ const AuthForm: React.FC = () => {
             maxLength={100}
           />
         </div>
-        
+
         {!isLogin && (
           <>
             <div className="form-group">

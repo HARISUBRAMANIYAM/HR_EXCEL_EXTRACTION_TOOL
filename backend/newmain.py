@@ -1,3 +1,4 @@
+import concurrent
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, validator
@@ -109,7 +110,9 @@ async def change_password(
     password_data: ChangePasswordRequest,
     db: Session = Depends(get_db),
 ):
-    user = db.query(UserModel).filter(UserModel.username == password_data.username).first()
+    user = (
+        db.query(UserModel).filter(UserModel.username == password_data.username).first()
+    )
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -125,7 +128,7 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 6 characters",
         )
-    user.hashed_password= hash_password(password_data.new_password)
+    user.hashed_password = hash_password(password_data.new_password)
     user.updated_at = datetime.utcnow()
     db.commit()
     return {"message": "Passsword changed sucessfully"}
@@ -430,6 +433,496 @@ async def process_folder(
     )
 
 
+# **********************************concurrent processing of files endpoint**********************************
+@app.post("/process_folder_pf_concurrent", response_model=FileProcessResult)
+async def process_folder(
+    folder_path: str = Form(..., min_length=3, max_length=500),
+    current_user: UserModel = Depends(require_hr_or_admin),
+    upload_date: str = Form(..., description="Date of Upload in YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    try:
+        upload_date_obj = datetime.strptime(upload_date, "%Y-%m-%d").date()
+        date_folder_name = upload_date_obj.strftime("%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="Invalid date format. Please use YYYY-MM-DD format"
+        )
+
+    folder = Path(folder_path)
+    if not folder_path.strip():
+        raise HTTPException(status_code=422, detail="Folder path cannot be empty")
+    if not folder.is_dir():
+        error_message = f"Invalid folder path: {folder_path}"
+        db_file = ProcessedFilePF(
+            user_id=current_user.id,
+            filename="N/A",
+            filepath=folder_path,
+            status="error",
+            message=error_message,
+        )
+        db.add(db_file)
+        db.commit()
+        raise HTTPException(status_code=400, detail=error_message)
+
+    excel_files = list(folder.glob("*.xls*"))
+    if not excel_files:
+        error_message = f"No Excel files found in the folder: {folder_path}"
+        db_file = ProcessedFilePF(
+            user_id=current_user.id,
+            filename="N/A",
+            filepath=folder_path,
+            status="error",
+            message=error_message,
+        )
+        db.add(db_file)
+        db.commit()
+        raise HTTPException(status_code=400, detail=error_message)
+
+    # Prepare output directories
+    excel_output_dir = Path("processed_excels_pf_concurrent") / date_folder_name
+    text_output_dir = Path("processed_texts_pf_concurrent") / date_folder_name
+    excel_output_dir.mkdir(parents=True, exist_ok=True)
+    text_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Function to process a single file
+    def process_single_file(excel_file: Path) -> dict:
+        file_result = {
+            "file_path": str(excel_file),
+            "status": "success",
+            "message": "File processed successfully",
+            "db_record": None,
+            "output_files": None,
+        }
+
+        try:
+            # Read Excel file
+            if excel_file.suffix == ".xlsx":
+                df = pd.read_excel(excel_file, dtype={"UAN No": str})
+            else:
+                df = pd.read_excel(excel_file, engine="xlrd", dtype={"UAN No": str})
+
+            if df.empty:
+                raise ValueError("Excel file is empty")
+
+            # Check for required columns
+            required_columns = {
+                "UAN No": ["UAN No"],
+                "Employee Name": ["Employee Name"],
+                "Gross Wages": ["Total Salary", "Gross Salary"],
+                "EPF Wages": ["PF Gross", "EPF Gross"],
+                "LOP Days": ["LOP", "LOP Days"],
+            }
+
+            column_mapping = {}
+            missing_columns = []
+            for field, alternatives in required_columns.items():
+                found = False
+                for alt in alternatives:
+                    if alt in df.columns:
+                        column_mapping[field] = alt
+                        found = True
+                        break
+                if not found:
+                    missing_columns.append(field)
+
+            if missing_columns:
+                raise ValueError(
+                    f"Missing required columns: {', '.join(missing_columns)}"
+                )
+
+            # Process data
+            uan_no = df[column_mapping["UAN No"]].astype(str).str.replace("-", "")
+            member_name = df[column_mapping["Employee Name"]]
+            gross_wages = (
+                df[column_mapping["Gross Wages"]].fillna(0).round().astype(int)
+            )
+            epf_wages = df[column_mapping["EPF Wages"]].fillna(0).round().astype(int)
+            lop_days_raw = df[column_mapping["LOP Days"]]
+
+            def custom_round(x):
+                if pd.isna(x):
+                    return 0
+                decimal_part = x - int(x)
+                if decimal_part >= 0.5:
+                    return math.ceil(x)
+                else:
+                    return math.floor(x)
+
+            lop_days = lop_days_raw.apply(custom_round)
+            eps_wages = epf_wages.apply(lambda x: min(x, 15000) if x > 0 else 0)
+            edli_wages = epf_wages.apply(lambda x: min(x, 15000) if x > 0 else 0)
+            epf_contrib_remitted = (epf_wages * 0.12).round().astype(int)
+            eps_contrib_remitted = (eps_wages * 0.0833).round().astype(int)
+            epf_eps_diff_remitted = (
+                epf_contrib_remitted - eps_contrib_remitted
+            ).astype(int)
+            ncp_days = lop_days
+            refund_of_advances = 0
+
+            output_df = pd.DataFrame(
+                {
+                    "UAN No": uan_no,
+                    "MEMBER NAME": member_name,
+                    "GROSS WAGES": gross_wages,
+                    "EPF Wages": epf_wages,
+                    "EPS Wages": eps_wages,
+                    "EDLI WAGES": edli_wages,
+                    "EPF CONTRI REMITTED": epf_contrib_remitted,
+                    "EPS CONTRI REMITTED": eps_contrib_remitted,
+                    "EPF EPS DIFF REMITTED": epf_eps_diff_remitted,
+                    "NCP DAYS": ncp_days,
+                    "REFUND OF ADVANCES": refund_of_advances,
+                }
+            )
+
+            # Generate output files
+            original_stem = excel_file.stem
+            unique_id = uuid.uuid4()
+            excel_filename = f"{original_stem}_{unique_id}.xlsx"
+            text_filename = f"{original_stem}_{unique_id}.txt"
+            excel_file_path = excel_output_dir / excel_filename
+            text_file_path = text_output_dir / text_filename
+
+            output_df.to_excel(excel_file_path, index=False)
+
+            output_lines = [
+                "#~#".join(map(str, row)) for row in output_df.values.tolist()
+            ]
+            header_line = "#~#".join(output_df.columns)
+            output_lines.insert(0, header_line)
+
+            with open(text_file_path, "w") as f:
+                f.write("\n".join(output_lines))
+
+            # Prepare DB record
+            db_record = ProcessedFilePF(
+                user_id=current_user.id,
+                filename=excel_file.name,
+                filepath=f"{str(excel_file_path)},{str(text_file_path)}",
+                status="success",
+                message="File processed successfully.",
+                upload_date=upload_date_obj,
+            )
+
+            file_result.update(
+                {
+                    "db_record": db_record,
+                    "output_files": (str(excel_file_path), str(text_file_path)),
+                }
+            )
+
+        except Exception as e:
+            file_result.update(
+                {
+                    "status": "error",
+                    "message": f"Error processing file {excel_file.name}: {str(e)}",
+                    "db_record": ProcessedFilePF(
+                        user_id=current_user.id,
+                        filename=excel_file.name,
+                        filepath=str(excel_file),
+                        status="error",
+                        message=f"Error processing file {excel_file.name}: {str(e)}",
+                    ),
+                }
+            )
+
+        return file_result
+
+    # Process files in parallel
+    processed_files = []
+    overall_status = "success"
+    overall_message = "All files processed successfully."
+    db_records = []
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_file = {
+            executor.submit(process_single_file, file): file for file in excel_files
+        }
+
+        for future in concurrent.futures.as_completed(future_to_file):
+            file_result = future.result()
+            processed_files.append(
+                FileProcessResult(
+                    file_path=file_result["file_path"],
+                    status=file_result["status"],
+                    message=file_result["message"],
+                )
+            )
+
+            if file_result["db_record"]:
+                db_records.append(file_result["db_record"])
+
+            if file_result["status"] == "error":
+                overall_status = "error"
+                overall_message = "Some files had errors during processing."
+
+    # Bulk insert all records
+    try:
+        db.bulk_save_objects(db_records)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Error saving records to database: {str(e)}"
+        )
+
+    return FileProcessResult(
+        file_path=folder_path,
+        status=overall_status,
+        message=overall_message,
+        upload_date=upload_date_obj,
+    )
+
+
+@app.post("/esi_upload_concurrent", response_model=FileProcessResult)
+async def process_esi_file(
+    folder_path: str = Form(..., min_length=3, max_length=500),
+    upload_date: str = Form(..., description="Date of Upload in YYYY-MM-DD format"),
+    current_user: UserModel = Depends(require_hr_or_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        # Validate the upload date format
+        upload_date_obj = datetime.strptime(upload_date, "%Y-%m-%d").date()
+        date_folder_name = upload_date_obj.strftime("%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="Invalid date format. Please use YYYY-MM-DD format"
+        )
+
+    folder = Path(folder_path)
+    if not folder.is_dir():
+        error_message = f"Invalid folder path: {folder_path}"
+        db_file = ProcessedFileESI(
+            user_id=current_user.id,
+            filename="N/A",
+            filepath=folder_path,
+            status="error",
+            message=error_message,
+        )
+        db.add(db_file)
+        db.commit()
+        raise HTTPException(status_code=400, detail=error_message)
+
+    excel_files = list(folder.glob("*.xls*"))
+    if not excel_files:
+        error_message = f"No Excel files found in the folder: {folder_path}"
+        db_file = ProcessedFileESI(
+            user_id=current_user.id,
+            filename="N/A",
+            filepath=folder_path,
+            status="error",
+            message=error_message,
+        )
+        db.add(db_file)
+        db.commit()
+        raise HTTPException(status_code=400, detail=error_message)
+
+    # Prepare output directories
+    excel_output_dir = Path("processed_excels_esi_concurrent") / date_folder_name
+    text_output_dir = Path("processed_texts_esi_concurrent") / date_folder_name
+    excel_output_dir.mkdir(parents=True, exist_ok=True)
+    text_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Function to process a single ESI file
+    def process_single_esi_file(excel_file: Path) -> dict:
+        file_result = {
+            "file_path": str(excel_file),
+            "status": "success",
+            "message": "File processed successfully",
+            "db_record": None,
+            "output_files": None,
+        }
+
+        try:
+            # Read Excel file
+            if excel_file.suffix == ".xlsx":
+                df = pd.read_excel(excel_file, dtype={"ESI N0": str})
+            else:
+                df = pd.read_excel(excel_file, engine="xlrd", dtype={"ESI N0": str})
+
+            if df.empty:
+                raise ValueError("Excel file is empty")
+
+            # Check for required columns
+            required_columns = {
+                "ESI No": ["ESI N0"],
+                "Employee Name": ["Employee Name"],
+                "ESI Gross": ["ESI Gross"],
+                "Worked Days": ["Worked days"],
+            }
+
+            column_mapping = {}
+            missing_columns = []
+            for field, alternatives in required_columns.items():
+                found = False
+                for alt in alternatives:
+                    if alt in df.columns:
+                        column_mapping[field] = alt
+                        found = True
+                        break
+                if not found:
+                    missing_columns.append(field)
+
+            if missing_columns:
+                raise ValueError(
+                    f"Missing required columns: {', '.join(missing_columns)}"
+                )
+
+            # Filter out invalid ESI numbers and gross values
+            esi_column = df[column_mapping["ESI No"]]
+            esi_column_gross = df[column_mapping["ESI Gross"]]
+
+            valid_esi_mask = ~(
+                (esi_column == 0)
+                | (esi_column == "0")
+                | (esi_column == "0.0")
+                | (esi_column.isna())
+                | (esi_column.isnull())
+                | (esi_column == "")
+            )
+
+            valid_esi_gross_mask = ~(
+                (esi_column_gross == 0)
+                | (esi_column_gross.isna())
+                | (esi_column_gross.isnull())
+            )
+
+            valid_rows_mask = valid_esi_mask & valid_esi_gross_mask
+            df = df[valid_rows_mask]
+
+            if df.empty:
+                raise ValueError(
+                    "No valid ESI data found after filtering invalid entries"
+                )
+
+            # Process valid data
+            esi_no = df[column_mapping["ESI No"]].astype(str).str.replace("-", "")
+            member_name = df[column_mapping["Employee Name"]]
+            esi_gross = df[column_mapping["ESI Gross"]].fillna(0).round().astype(int)
+            worked_days_raw = df[column_mapping["Worked Days"]]
+
+            def custom_round(x):
+                if pd.isna(x):
+                    return 0
+                decimal_part = x - int(x)
+                if decimal_part >= 0.5:
+                    return math.ceil(x)
+                else:
+                    return math.floor(x)
+
+            worked_days = worked_days_raw.apply(custom_round)
+
+            output_df = pd.DataFrame(
+                {
+                    "ESI No": esi_no,
+                    "MEMBER NAME": member_name,
+                    "ESI GROSS": esi_gross,
+                    "WORKED DAYS": worked_days,
+                }
+            )
+
+            # Generate output files
+            original_stem = excel_file.stem
+            unique_id = uuid.uuid4()
+            excel_filename = f"{original_stem}_{unique_id}_esi.xlsx"
+            text_filename = f"{original_stem}_{unique_id}_esi.txt"
+            excel_file_path = excel_output_dir / excel_filename
+            text_file_path = text_output_dir / text_filename
+
+            output_df.to_excel(excel_file_path, index=False, float_format="%.0f")
+
+            output_lines = [
+                "#~#".join(map(str, row)) for row in output_df.values.tolist()
+            ]
+            header_line = "#~#".join(output_df.columns)
+            output_lines.insert(0, header_line)
+
+            with open(text_file_path, "w") as f:
+                f.write("\n".join(output_lines))
+
+            # Prepare DB record
+            db_record = ProcessedFileESI(
+                user_id=current_user.id,
+                filename=excel_file.name,
+                filepath=f"{str(excel_file_path)},{str(text_file_path)}",
+                status="success",
+                message="File processed successfully.",
+                upload_date=upload_date_obj,
+            )
+
+            file_result.update(
+                {
+                    "db_record": db_record,
+                    "output_files": (str(excel_file_path), str(text_file_path)),
+                }
+            )
+
+        except Exception as e:
+            file_result.update(
+                {
+                    "status": "error",
+                    "message": f"Error processing file {excel_file.name}: {str(e)}",
+                    "db_record": ProcessedFileESI(
+                        user_id=current_user.id,
+                        filename=excel_file.name,
+                        filepath=str(excel_file),
+                        status="error",
+                        message=f"Error processing file {excel_file.name}: {str(e)}",
+                    ),
+                }
+            )
+
+        return file_result
+
+    # Process files in parallel
+    processed_files = []
+    overall_status = "success"
+    overall_message = "All files processed successfully."
+    db_records = []
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_file = {
+            executor.submit(process_single_esi_file, file): file for file in excel_files
+        }
+
+        for future in concurrent.futures.as_completed(future_to_file):
+            file_result = future.result()
+            processed_files.append(
+                FileProcessResult(
+                    file_path=file_result["file_path"],
+                    status=file_result["status"],
+                    message=file_result["message"],
+                )
+            )
+
+            if file_result["db_record"]:
+                db_records.append(file_result["db_record"])
+
+            if file_result["status"] == "error":
+                overall_status = "error"
+                overall_message = "Some files had errors during processing."
+
+    # Bulk insert all records
+    try:
+        db.bulk_save_objects(db_records)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Error saving records to database: {str(e)}"
+        )
+
+    return FileProcessResult(
+        file_path=folder_path,
+        status=overall_status,
+        message=overall_message,
+        upload_date=upload_date_obj,
+    )
+
+
+# *********************************************************************************************************************************************************************
 @app.get("/processed_files_pf", response_model=List[ProcessedFileResponse])
 async def get_processed_files_pf(
     upload_date: date = Query(..., description="Date of upload in YYYY-MM-DD format"),

@@ -63,3 +63,5 @@ backend/processed_excels_pf_new
 backend/processed_texts_esi_new
 backend/processed_texts_pf_new
 frontend/hr-extraction-frontend/src/index2.txt
+backend/processed_texts_pf_concurrent
+backend/processed_excels_pf_concurrent

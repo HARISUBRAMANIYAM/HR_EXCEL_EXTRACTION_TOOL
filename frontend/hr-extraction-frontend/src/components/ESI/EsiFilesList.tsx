@@ -345,7 +345,7 @@ const EsiFilesList: React.FC = () => {
   if (loading) {
     return (
       <div className="loading-container">
-        <p>Loading ESI files...</p>
+        <p>Loading ESI Remittance...</p>
         <div className="loading-spinner"></div>
       </div>
     );
@@ -414,7 +414,7 @@ const EsiFilesList: React.FC = () => {
               className="search-input"
             />
           </div>
-          <h1 style={{ fontWeight: "bold" }}>Processed ESI Files</h1>
+          <h1 style={{ fontWeight: "bold" }}>Processed ESI Remittance</h1>
           <div className="actions-container">
             <div className="select-all-container">
               <input
@@ -446,7 +446,7 @@ const EsiFilesList: React.FC = () => {
 
         {files.length === 0 ? (
           <p className="no-files">
-            No ESI files processed for the selected date
+            No ESI Remittance processed for the selected date
           </p>
         ) : (
           <table className="files-table">
