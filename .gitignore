@@ -65,3 +65,5 @@ backend/processed_texts_pf_concurrent
 backend/processed_excels_pf_concurrent
 /HR_EXCEL_EXTRACTION_TOOL
 E:/Modifyed_Project/HR_EXCEL_EXTRACTION_TOOL
+frontend/hr-extraction-frontend/node_modules
+HR_EXCEL_EXTRACTION_TOOL/frontend/hr-extraction-frontend/node_modules

@@ -209,10 +209,15 @@ const EsiFilesList: React.FC = () => {
       const formData = new FormData();
       formData.append("remittance_date", remittanceDate);
       formData.append("remittance_file", remittanceFile);
-
+      const config = {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      };  
       await api.post(
         `/processed_files_esi/${fileId}/submit_remittance`,
-        formData
+        formData,
+        config
       );
 
       toast.update(toastId, {

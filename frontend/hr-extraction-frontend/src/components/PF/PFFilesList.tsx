@@ -202,10 +202,15 @@ const PFFilesList: React.FC = () => {
       const formData = new FormData();
       formData.append("remittance_date", remittanceDate);
       formData.append("remittance_file", remittanceFile);
-
+      const config = {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      };  
       await api.post(
         `/processed_files_pf/${fileId}/submit_remittance`,
-        formData
+        formData,
+        config
       );
 
       toast.success("Remittance uploaded successfully");
