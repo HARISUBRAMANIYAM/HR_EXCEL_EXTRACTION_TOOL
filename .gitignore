@@ -39,8 +39,6 @@ backend/remittance_challans
 .gitignore
 
 backend/Scheduleendpoint.txt
-backend/schemas.py
-backend/utils.py
 backend/scheduler.txt
 backend\__pycache__
 backend/hr_extraction.db
