@@ -2,6 +2,7 @@ import { useState } from "react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "../../context/AuthContext";
+import api from "../../services/api";
 import { FileProcessResult } from "../../types";
 
 const EsiUpload: React.FC = () => {
@@ -45,59 +46,24 @@ const EsiUpload: React.FC = () => {
     setProcessing(true);
     setError("");
     setResult(null);
-    const toastId = toast.loading("Processing ESI files...");
-
+    toast.info("Processing PF files...", { autoClose: false });
     try {
       const formData = new FormData();
       formData.append("folder_path", folderPath);
       formData.append("upload_date", uploadDate);
 
-      const response = await fetch("http://localhost:8000/esi_upload", {
-        method: "POST",
+      const response = await api.post("/esi_upload", formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
         },
-        body: formData,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to process folder");
-      }
-
-      const data = await response.json();
-      setResult(data);
-
-      toast.update(toastId, {
-        render: "ESI files processed successfully!",
-        type: "success",
-        isLoading: false,
-        autoClose: 5000,
-        closeButton: true,
-      });
-
-      // Show additional details in a separate toast
-      if (data.file_path) {
-        toast.info(
-          <div>
-            <p>Processed files from:</p>
-            <p>{data.file_path}</p>
-          </div>,
-          { autoClose: 7000 }
-        );
-      }
+      setResult(response.data);
+      toast.success("ESI files processed successfully!");
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "An unexpected error occurred";
       setError(errorMessage);
-
-      toast.update(toastId, {
-        render: errorMessage,
-        type: "error",
-        isLoading: false,
-        autoClose: 5000,
-        closeButton: true,
-      });
+      toast.error(errorMessage);
     } finally {
       setProcessing(false);
     }

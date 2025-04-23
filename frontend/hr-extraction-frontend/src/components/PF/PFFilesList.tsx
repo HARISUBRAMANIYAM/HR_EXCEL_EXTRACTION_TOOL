@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { toast, ToastContainer } from "react-toastify";
 import { useAuth } from "../../context/AuthContext";
 import { ProcessedFile } from "../../types";
+import api from "../../services/api";
 
 interface PFFile extends ProcessedFile {
   uan_no?: string;
@@ -10,11 +11,11 @@ interface PFFile extends ProcessedFile {
   remittance_submitted?: boolean;
   remittance_date?: string;
   remittance_challan_path?: string;
-  upload_date?: string; // Add this field to match backend
+  upload_date?: string;
 }
 
 const PFFilesList: React.FC = () => {
-  const { token, user } = useAuth(); // Assume user object contains role information
+  const { token, user } = useAuth();
   const [files, setFiles] = useState<PFFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -36,30 +37,24 @@ const PFFilesList: React.FC = () => {
     new Date().toISOString().split("T")[0]
   );
   const [remittanceFile, setRemittanceFile] = useState<File | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null); // For admin filtering
-  const [users, setUsers] = useState<{ id: number; name: string }[]>([]); // Assuming you have a list of users
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
+
   useEffect(() => {
     fetchFiles();
   }, [token, uploadDate, selectedUserId]);
+
   useEffect(() => {
     if (user?.role === "admin") {
       fetchUsers();
     }
   }, [user]);
+
   const fetchUsers = async () => {
     try {
       toast.info("Loading user list...", { autoClose: 1500 });
-      const response = await fetch("http://localhost:8000/users", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error("Failed to fetch users");
-      }
-      const data = await response.json();
-      console.log(data);
-      setUsers(data);
+      const response = await api.get("/users");
+      setUsers(response.data);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to load users";
@@ -67,30 +62,24 @@ const PFFilesList: React.FC = () => {
       setError(errorMessage);
     }
   };
+
   const fetchFiles = async () => {
     try {
       setLoading(true);
       setError("");
       toast.info("Loading PF files...", { autoClose: 2000 });
-      // Build the URL with required upload_date parameter
-      let url = `http://localhost:8000/processed_files_pf?upload_date=${uploadDate}`;
+      
+      // Build the params object
+      const params: Record<string, string> = {
+        upload_date: uploadDate
+      };
 
-      // Add user_id parameter if admin and a user is selected
       if (user?.role === "admin" && selectedUserId) {
-        url += `&user_id=${selectedUserId}`;
+        params.user_id = selectedUserId.toString();
       }
 
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        throw new Error((await response.text()) || "Failed to fetch PF files");
-      }
-
-      const data = await response.json();
-      setFiles(data);
-      // Reset selections when data changes
+      const response = await api.get("/processed_files_pf", { params });
+      setFiles(response.data);
       toast.success("PF files loaded successfully", { autoClose: 3000 });
       setSelectedFiles([]);
       setSelectAll(false);
@@ -112,16 +101,12 @@ const PFFilesList: React.FC = () => {
       setDownloading(fileId);
       setError("");
 
-      const url = `http://localhost:8000/processed_files_pf/${fileId}/download?file_type=${fileType}`;
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await api.get(
+        `/processed_files_pf/${fileId}/download?file_type=${fileType}`,
+        { responseType: "blob" }
+      );
 
-      if (!response.ok) {
-        throw new Error((await response.text()) || "Download failed");
-      }
-
-      const blob = await response.blob();
+      const blob = new Blob([response.data]);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
@@ -148,18 +133,13 @@ const PFFilesList: React.FC = () => {
     try {
       toast.info(`Preparing ${selectedFiles.length} files for download...`);
       const fileIdsParam = selectedFiles.join(",");
-      const url = `http://localhost:8000/processed_files_pf/batch_download?file_ids=${fileIdsParam}`;
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      
+      const response = await api.get(
+        `/processed_files_pf/batch_download?file_ids=${fileIdsParam}`,
+        { responseType: "blob" }
+      );
 
-      if (!response.ok) {
-        throw new Error(`Failed to download files: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
+      const blob = new Blob([response.data]);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
@@ -177,25 +157,18 @@ const PFFilesList: React.FC = () => {
     }
   };
 
-  // Other handlers remain the same
   const handleRemittanceDownload = async (fileId: number) => {
     try {
       setDownloading(`remittance-${fileId}`);
       toast.info("Downloading remittance challan...");
       setError("");
 
-      const url = `http://localhost:8000/processed_files_pf/${fileId}/remittance_challan`;
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await api.get(
+        `/processed_files_pf/${fileId}/remittance_challan`,
+        { responseType: "blob" }
+      );
 
-      if (!response.ok) {
-        throw new Error(
-          (await response.text()) || "Remittance download failed"
-        );
-      }
-
-      const blob = await response.blob();
+      const blob = new Blob([response.data]);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
@@ -212,7 +185,6 @@ const PFFilesList: React.FC = () => {
     } finally {
       setDownloading(null);
     }
-    // Implementation unchanged
   };
 
   const handleUploadRemittance = async (fileId: number) => {
@@ -231,30 +203,14 @@ const PFFilesList: React.FC = () => {
       formData.append("remittance_date", remittanceDate);
       formData.append("remittance_file", remittanceFile);
 
-      const response = await fetch(
-        `http://localhost:8000/processed_files_pf/${fileId}/submit_remittance`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
-        }
+      await api.post(
+        `/processed_files_pf/${fileId}/submit_remittance`,
+        formData
       );
-      setTimeout(() => {
-        toast.success("Remittance uploaded successfully");
-      }, 1000);
-      if (!response.ok) {
-        toast.error("Remittance upload failed");
-        throw new Error((await response.text()) || "Remittance upload failed");
-      }
 
-      await response.json();
-      // Refresh the file list to show updated remittance status
       toast.success("Remittance uploaded successfully");
       fetchFiles();
       setRemittanceFile(null);
-      // Close the upload form
       setUploadingRemittance(null);
     } catch (err) {
       const errorMessage =
@@ -264,7 +220,6 @@ const PFFilesList: React.FC = () => {
     } finally {
       setUploadingRemittance(null);
     }
-    // Implementation unchanged
   };
 
   const toggleFileSelection = (fileId: number) => {
@@ -273,7 +228,6 @@ const PFFilesList: React.FC = () => {
         ? prev.filter((id) => id !== fileId)
         : [...prev, fileId]
     );
-    // Implementation unchanged
   };
 
   const handleSelectAll = () => {
@@ -286,7 +240,6 @@ const PFFilesList: React.FC = () => {
       setSelectedFiles(allSuccessFileIds);
     }
     setSelectAll(!selectAll);
-    // Implementation unchanged
   };
 
   const filteredAndSortedFiles = [...files]
@@ -312,7 +265,6 @@ const PFFilesList: React.FC = () => {
     });
 
   const handleSort = (key: "filename" | "created_at") => {
-    // Implementation unchanged
     setSortConfig((prev) => {
       if (prev?.key === key) {
         return {

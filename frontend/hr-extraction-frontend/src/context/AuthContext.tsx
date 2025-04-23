@@ -1,6 +1,7 @@
 // src/context/AuthContext.tsx
 
 import React, { createContext, useContext, useEffect, useState } from "react";
+import api from "../services/api";
 import { Token, User } from "../types";
 
 interface AuthContextProps {
@@ -31,13 +32,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isLoading, setIsLoading] = useState(true);
 
   const login = (tokenData: Token) => {
-    const { access_token } = tokenData;
+    const { access_token, refresh_token } = tokenData;
     localStorage.setItem("token", access_token);
+    if (refresh_token) {
+      localStorage.setItem("refreshToken", refresh_token);
+    }
     setToken(access_token);
   };
 
   const logout = () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
     setToken(null);
     setUser(null);
   };
@@ -50,19 +55,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       try {
-        const response = await fetch("http://localhost:8000/users/me", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (response.ok) {
-          const userData = await response.json();
-          setUser(userData);
-          console.log("Auth State:",{user,token})
-        } else {
-          logout();
-        }
+        const response = await api.get("/users/me");
+        setUser(response.data);
+        console.log("Auth State:", { user, token });
       } catch (error) {
         console.error("Error fetching user:", error);
         logout();

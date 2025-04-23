@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "../../context/AuthContext";
+import api from "../../services/api";
 import { ProcessedFile } from "../../types";
 interface ESIFile extends ProcessedFile {
   remittance_submitted?: boolean;
@@ -48,28 +49,19 @@ const EsiFilesList: React.FC = () => {
       setError("");
       toast.info("Loading ESI files...", { autoClose: 2000 });
 
-      // Build the URL with required upload_date parameter
-      let url = `http://localhost:8000/processed_files_esi?upload_date=${uploadDate}`;
+      const params: Record<string, string> = {
+        upload_date: uploadDate,
+      };
 
       // Add user_id parameter if admin and a user is selected
       if (user?.role === "admin" && selectedUserId) {
-        url += `&user_id=${selectedUserId}`;
+        params.user_id = selectedUserId.toString();
       }
 
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch ESI files");
-      }
-
-      const data: ESIFile[] = await response.json();
-      setFiles(data);
+      const response = await api.get("/processed_files_esi", { params });
+      setFiles(response.data);
       // Reset selections when data changes
-      toast.success("ESI files loaded successfully");
+      toast.success("ESI files loaded successfully", { autoClose: 3000 });
       setSelectedFiles([]);
       setSelectAll(false);
     } catch (err) {
@@ -89,17 +81,8 @@ const EsiFilesList: React.FC = () => {
   const fetchUsers = async () => {
     try {
       toast.info("Loading user list...", { autoClose: 1500 });
-      const response = await fetch("http://localhost:8000/users", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error("Failed to fetch users");
-      }
-      const data = await response.json();
-      console.log(data);
-      setUsers(data);
+      const response = await api.get("/users");
+      setUsers(response.data);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to load users";
@@ -117,28 +100,15 @@ const EsiFilesList: React.FC = () => {
       setError("");
       toast.info(`Downloading ${fileType.toUpperCase()} file...`);
 
-      let url = `http://localhost:8000/processed_files_esi/${fileId}/download${
-        fileType ? `?file_type=${fileType}` : ""
-      }`;
-
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to download file");
-      }
-
-      const blob = await response.blob();
+      const response = await api.get(
+        `/processed_files_esi/${fileId}/download?file_type=${fileType}`,
+        { responseType: "blob" }
+      );
+      const blob = new Blob([response.data]);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
-      a.download =
-        fileType === "txt"
-          ? filename.split(".")[0] + "_esi.txt"
-          : filename.split(".")[0] + "_esi.xlsx";
+      a.download = `esi_report_${fileId}.${fileType}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
@@ -167,18 +137,12 @@ const EsiFilesList: React.FC = () => {
     try {
       toast.info(`Preparing ${selectedFiles.length} file(s) for download...`);
       const fileIdsParam = selectedFiles.join(",");
-      const url = `http://localhost:8000/processed_files_esi/batch_download?file_ids=${fileIdsParam}`;
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to download files");
-      }
-
-      const blob = await response.blob();
+      //const url = `http://localhost:8000/processed_files_esi/batch_download?file_ids=${fileIdsParam}`;
+      const response = await api.get(
+        `/processed_files_esi/batch_download?file_ids=${fileIdsParam}`,
+        { responseType: "blob" }
+      );
+      const blob = new Blob([response.data]);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
@@ -246,29 +210,18 @@ const EsiFilesList: React.FC = () => {
       formData.append("remittance_date", remittanceDate);
       formData.append("remittance_file", remittanceFile);
 
-      const response = await fetch(
-        `http://localhost:8000/processed_files_esi/${fileId}/submit_remittance`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
-        }
+      await api.post(
+        `/processed_files_esi/${fileId}/submit_remittance`,
+        formData
       );
+
       toast.update(toastId, {
         render: "Remittance uploaded successfully!",
         type: "success",
         isLoading: false,
         autoClose: 3000,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to upload remittance");
-      }
-
-      await fetchFiles(); // Refresh the file list
+      fetchFiles(); // Refresh the file list
       setRemittanceFile(null);
       // Close the upload form
       setUploadingRemittance(null);
@@ -287,20 +240,11 @@ const EsiFilesList: React.FC = () => {
       toast.info("Downloading remittance challan...");
       setError("");
 
-      const response = await fetch(
-        `http://localhost:8000/processed_files_esi/${fileId}/remittance_challan`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+      const response = await api.get(
+        `/processed_files_esi/${fileId}/remittance_challan`,
+        { responseType: "blob" }
       );
-
-      if (!response.ok) {
-        throw new Error("Failed to download remittance challan");
-      }
-
-      const blob = await response.blob();
+      const blob = new Blob([response.data]);
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;

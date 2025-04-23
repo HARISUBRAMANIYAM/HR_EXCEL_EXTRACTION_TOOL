@@ -53,15 +53,11 @@ const PFUpload: React.FC = () => {
       formData.append("folder_path", folderPath);
       formData.append("upload_date", uploadDate);
 
-      const response = await api.post<FileProcessResult>(
-        "/process_folder_pf",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
+      const response = await api.post("/process_folder_pf", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
       setResult(response.data);
       toast.success("PF files processed successfully!");

@@ -52,6 +52,9 @@ api.interceptors.request.use(
       config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
     }
+    console.log("Request:",config.url);
+    console.log('Refresh token flow triggered');
+
     return config;
   },
   (error) => {
@@ -79,7 +82,7 @@ api.interceptors.response.use(
           }
 
           const response = await axios.post<RefreshTokenResponse>(
-            `${API_BASE_URL}/refresh-token`,
+            `${API_BASE_URL}/refresh_token`,
             { refresh_token: refreshToken } as RefreshTokenRequest
           );
 
