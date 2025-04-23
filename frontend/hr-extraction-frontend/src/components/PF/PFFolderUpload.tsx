@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { toast, ToastContainer } from "react-toastify";
 import { useAuth } from "../../context/AuthContext";
+import api from "../../services/api";
 import { FileProcessResult } from "../../types";
 
 const PFUpload: React.FC = () => {
@@ -52,31 +53,22 @@ const PFUpload: React.FC = () => {
       formData.append("folder_path", folderPath);
       formData.append("upload_date", uploadDate);
 
-      const response = await fetch("http://localhost:8000/process_folder_pf", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      const response = await api.post<FileProcessResult>(
+        "/process_folder_pf",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "PF processing failed");
-      }
-
-      const data = await response.json();
-      setResult(data);
+      setResult(response.data);
       toast.success("PF files processed successfully!");
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "An error occurred during PF processing";
-      toast.error(errorMessage);
-      setError(errorMessage);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message);
+      toast.error(err.response?.data?.detail || err.message);
     } finally {
-      toast.dismiss();
       setProcessing(false);
     }
   };

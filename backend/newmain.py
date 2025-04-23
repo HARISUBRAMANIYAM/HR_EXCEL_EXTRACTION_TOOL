@@ -149,6 +149,24 @@ async def read_users(
         user = {"id": row.id, "name": row.username}
         result.append(user)
     return result
+@app.post("/refresh_token")
+def refresh_token(req:RefreshTokenRequest,db:Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(req.refresh_token,SECRET_KEY,algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401,detail= "Invalid refresh Token")
+    except JWTError:
+        raise HTTPException(status_code=401,detail="Invalid refresh token")
+    user = db.query(UserModel).filter(UserModel.username == username).first()
+    if not user:
+        raise HTTPException(status_code=401,detail="Invalid refresh Token")
+    new_access_token = create_access_token(
+        data={
+            "sub":user.username
+        },expires_delta=timedelta(minutes=30)
+    )
+    return {"acesssToken":new_access_token,"token_type":"bearer"}
 
 
 @app.post("/process_folder_pf", response_model=FileProcessResult)
