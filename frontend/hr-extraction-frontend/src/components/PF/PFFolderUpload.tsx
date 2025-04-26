@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "../../context/AuthContext";
@@ -7,25 +7,94 @@ import { FileProcessResult } from "../../types";
 
 const PFUpload: React.FC = () => {
   const { token } = useAuth();
-  const [folderPath, setFolderPath] = useState("");
+  const [folderName, setFolderName] = useState("");
   const [uploadMonth, setUploadMonth] = useState("");
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<FileProcessResult | null>(null);
   const [error, setError] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
 
-  const validatePath = (path: string): boolean => {
-    // Basic validation for Windows paths
-    return /^[a-zA-Z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*$/.test(
-      path
-    );
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+
+      const droppedItems = e.dataTransfer.items;
+      const newFiles: File[] = [];
+
+      if (droppedItems) {
+        // Handle folder drop
+        for (let i = 0; i < droppedItems.length; i++) {
+          const item = droppedItems[i];
+          if (item.kind === "file") {
+            const entry = item.webkitGetAsEntry();
+            if (entry && entry.isDirectory) {
+              // Get the folder name
+              setFolderName(entry.name);
+            } else if (entry && entry.isFile) {
+              const file = item.getAsFile();
+              if (file) newFiles.push(file);
+            }
+          }
+        }
+      } else {
+        // Fallback for browsers that don't support DataTransferItem
+        const droppedFiles = e.dataTransfer.files;
+        for (let i = 0; i < droppedFiles.length; i++) {
+          newFiles.push(droppedFiles[i]);
+        }
+        if (newFiles.length > 0) {
+          setFolderName(newFiles[0].webkitRelativePath.split("/")[0]);
+        }
+      }
+
+      if (newFiles.length > 0) {
+        setFiles(newFiles);
+        toast.info(
+          `Selected ${newFiles.length} files from folder: ${folderName}`
+        );
+      }
+    },
+    [folderName]
+  );
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = e.target.files;
+    if (selectedFiles && selectedFiles.length > 0) {
+      const newFiles = Array.from(selectedFiles);
+      setFiles(newFiles);
+      setFolderName(newFiles[0].webkitRelativePath.split("/")[0]);
+      toast.info(
+        `Selected ${newFiles.length} files from folder: ${folderName}`
+      );
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!folderPath.trim()) {
-      toast.error("Folder path is required");
-      setError("Folder path is required");
+    if (files.length === 0) {
+      toast.error("Please select a folder with PF files");
+      setError("Please select a folder with PF files");
       return;
     }
 
@@ -35,27 +104,22 @@ const PFUpload: React.FC = () => {
       return;
     }
 
-    if (!validatePath(folderPath)) {
-      const errorMsg =
-        "Please enter a valid Windows folder path (e.g., C:\\folder\\subfolder)";
-      toast.error(errorMsg);
-      setError(errorMsg);
-      return;
-    }
-
     setProcessing(true);
     setError("");
     setResult(null);
     toast.info("Processing PF files...", { autoClose: false });
-    
+
     try {
       // Convert from YYYY-MM format to MM-YYYY format
       const [year, month] = uploadMonth.split("-");
       const formattedMonth = `${month}-${year}`;
 
       const formData = new FormData();
-      formData.append("folder_path", folderPath);
-      // Changed the key from "upload_date" to "upload_month" to match the backend expectation
+      // Add all files
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+      formData.append("folder_name", folderName);
       formData.append("upload_month", formattedMonth);
 
       const response = await api.post("/process_folder_pf_new", formData, {
@@ -69,42 +133,40 @@ const PFUpload: React.FC = () => {
       toast.success("PF files processed successfully!");
     } catch (err: any) {
       console.error("Error details:", err);
-      
-      // Handle error object properly
+
       let errorMessage = "An unexpected error occurred";
-      
+
       if (err.response && err.response.data) {
-        // Handle response data which might be an object
-        if (typeof err.response.data === 'string') {
+        if (typeof err.response.data === "string") {
           errorMessage = err.response.data;
         } else if (Array.isArray(err.response.data)) {
-          // Handle FastAPI validation error array
-          errorMessage = err.response.data.map((error: { loc: any[]; msg: any; }) => 
-            `Field '${error.loc.slice(1).join('.')}': ${error.msg}`
-          ).join(", ");
+          errorMessage = err.response.data
+            .map(
+              (error: { loc: any[]; msg: any }) =>
+                `Field '${error.loc.slice(1).join(".")}': ${error.msg}`
+            )
+            .join(", ");
         } else if (err.response.data.detail) {
-          // Handle FastAPI error format
-          errorMessage = typeof err.response.data.detail === 'string' 
-            ? err.response.data.detail 
-            : JSON.stringify(err.response.data.detail);
+          errorMessage =
+            typeof err.response.data.detail === "string"
+              ? err.response.data.detail
+              : JSON.stringify(err.response.data.detail);
         } else {
-          // Generic object handling
           errorMessage = JSON.stringify(err.response.data);
         }
       } else if (err instanceof Error) {
         errorMessage = err.message;
       }
-      
+
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
       setProcessing(false);
     }
   };
-  
-  // Get today's date in YYYY-MM format for the default value
+
   const currentMonth = new Date().toISOString().slice(0, 7);
-  
+
   return (
     <>
       <ToastContainer
@@ -144,28 +206,49 @@ const PFUpload: React.FC = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="pfFolderPath">
-              PF Remittance Folder Path
+            <label>
+              PF Remittance Folder
               <span className="required">*</span>
             </label>
-            <input
-              id="pfFolderPath"
-              type="text"
-              name="folderPath"
-              value={folderPath}
-              onChange={(e) => setFolderPath(e.target.value)}
-              placeholder="Example: C:\\HR\\PF_Monthly_Reports"
-              required
-              disabled={processing}
-              title="Enter a valid Windows folder path"
-              autoComplete="off"
-            />
+            <div
+              className={`drop-zone ${isDragOver ? "drag-over" : ""}`}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+            >
+              <div className="drop-zone-content">
+                <p>Drag and drop your PF folder here</p>
+                <p>or</p>
+                <label htmlFor="fileInput" className="browse-button">
+                  Browse Files
+                  <input
+                    id="fileInput"
+                    type="file"
+                    // @ts-ignore - webkitdirectory is not in the standard yet
+                    webkitdirectory="true"
+                    directory="true"
+                    mozdirectory="true"
+                    onChange={handleFileInput}
+                    disabled={processing}
+                    style={{ display: "none" }}
+                  />
+                </label>
+              </div>
+            </div>
+            {folderName && (
+              <div className="selected-folder">
+                <strong>Selected Folder:</strong> {folderName}
+                <br />
+                <strong>Files:</strong> {files.length}
+              </div>
+            )}
           </div>
 
           <button
             type="submit"
             className="submit-button"
-            disabled={processing || !folderPath.trim() || !uploadMonth}
+            disabled={processing || files.length === 0 || !uploadMonth}
           >
             {processing ? (
               <>
@@ -197,7 +280,7 @@ const PFUpload: React.FC = () => {
                 <strong>Message:</strong> {result.message}
               </p>
               <p>
-                <strong>Files Processed:</strong> {result.file_path}
+                <strong>Files Processed:</strong> {files.length}
               </p>
               {result.upload_month && (
                 <p>
@@ -216,16 +299,16 @@ const PFUpload: React.FC = () => {
               Required columns:
               <ul>
                 <li>
-                  <strong>UAN No</strong> (10-12 digit Universal Account Number)
+                  <strong>UAN No</strong> (12 digit Universal Account Number)
                 </li>
                 <li>
                   <strong>Employee Name</strong>
                 </li>
                 <li>
-                  <strong>Gross Wages</strong> (Total Salary/Gross Salary)
+                  <strong>Gross Wages</strong> (Total Salary or Gross Salary)
                 </li>
                 <li>
-                  <strong>PF Gross</strong> (EPF Gross/PF Gross)
+                  <strong>PF Gross</strong> (EPF Gross or PF Gross)
                 </li>
                 <li>
                   <strong>LOP Days</strong> (Loss of Pay days)
