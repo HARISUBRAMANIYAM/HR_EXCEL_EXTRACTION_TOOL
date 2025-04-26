@@ -20,11 +20,7 @@ import FolderUpload from "./components/PF/PFFolderUpload";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
 const AppRoutes = () => {
-  const { user, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <div className="loading">Loading...</div>;
-  }
+  const { user} = useAuth();
 
   return (
     <ErrorBoundary>

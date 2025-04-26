@@ -33,7 +33,7 @@ export const authService = {
 // Dashboard services
 export const dashboardService = {
   getStats: async (year: number): Promise<DashboardStats> => {
-    const response = await api.get<DashboardStats>(`/dashboard?year=${year}`);
+    const response = await api.get<DashboardStats>(`/dashboard/remittance_stats_viz?year=${year}`);
     return response.data;
   }
 };

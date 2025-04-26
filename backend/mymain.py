@@ -1,6 +1,7 @@
 import asyncio
 import concurrent
 from fastapi import (
+    Body,
     FastAPI,
     HTTPException,
     Depends,
@@ -125,7 +126,12 @@ async def login_user(
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    return Token(access_token=access_token, token_type="bearer")
+    refresh_token= create_refresh_token(user)
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
 
 
 @app.put("/change_pass", response_model=MessageResponse)
@@ -174,23 +180,35 @@ async def read_users(
     return result
 
 
-@app.post("/refresh_token")
-def refresh_token(req: RefreshTokenRequest, db: Session = Depends(get_db)):
+@app.post("/refresh_token",response_model= Token)
+async def refresh_token(refresh_data:dict = Body(...), db: Session = Depends(get_db)):
     try:
-        payload = jwt.decode(req.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(refresh_data['refresh_token'], SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub")
-        if username is None:
+        token_type = payload.get("type")
+        if username is None or token_type != "refresh":
             raise HTTPException(status_code=401, detail="Invalid refresh Token")
+        user = db.query(UserModel).filter(UserModel.username == username).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not Found")
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        new_access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+        )
+        new_refresh_token = create_refresh_token(user)
+        return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+        }
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
-    user = db.query(UserModel).filter(UserModel.username == username).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid refresh Token")
-    new_access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=timedelta(minutes=30)
-    )
-    return {"acesssToken": new_access_token, "token_type": "bearer"}
-
+@app.post("/logout")
+async def logout(
+    current_user:UserModel = Depends(get_current_user),
+    db:Session = Depends(get_db)
+):
+    return {"message":"Sucessfully logged out"}
 
 # ********************************************************************************************#
 @app.post("/process_folder_pf_new", response_model=FileProcessResult)
@@ -1197,7 +1215,9 @@ async def process_esi_file(
 # *******************************************************************************
 @app.post("/process_folder_esi_new", response_model=FileProcessResult)
 async def process_esi_file(
-    files: List[UploadFile] = File(..., description="List of Excel files from the folder"),
+    files: List[UploadFile] = File(
+        ..., description="List of Excel files from the folder"
+    ),
     folder_name: str = Form(..., min_length=1, max_length=500),
     upload_month: str = Form(..., description="Month in MM-YYYY format"),
     current_user: UserModel = Depends(require_hr_or_admin),
@@ -1217,9 +1237,13 @@ async def process_esi_file(
         raise HTTPException(status_code=400, detail="No files uploaded")
 
     # Filter only Excel files
-    excel_files = [file for file in files if file.filename.lower().endswith(('.xls', '.xlsx'))]
+    excel_files = [
+        file for file in files if file.filename.lower().endswith((".xls", ".xlsx"))
+    ]
     if not excel_files:
-        raise HTTPException(status_code=400, detail="No Excel files found in the upload")
+        raise HTTPException(
+            status_code=400, detail="No Excel files found in the upload"
+        )
 
     # Prepare output directory
     timestamp_folder = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1243,10 +1267,12 @@ async def process_esi_file(
     for excel_file in excel_files:
         try:
             # Read Excel file
-            if excel_file.filename.lower().endswith('.xlsx'):
+            if excel_file.filename.lower().endswith(".xlsx"):
                 df = pd.read_excel(excel_file.file, dtype={"ESI N0": str})
             else:
-                df = pd.read_excel(excel_file.file, engine="xlrd", dtype={"ESI N0": str})
+                df = pd.read_excel(
+                    excel_file.file, engine="xlrd", dtype={"ESI N0": str}
+                )
 
             if df.empty:
                 raise ValueError("Excel file is empty")
@@ -1272,7 +1298,9 @@ async def process_esi_file(
                     missing_columns.append(field)
 
             if missing_columns:
-                raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
+                raise ValueError(
+                    f"Missing required columns: {', '.join(missing_columns)}"
+                )
 
             # Filter valid rows
             esi_column = df[column_mapping["ESI No"]]
@@ -1313,26 +1341,32 @@ async def process_esi_file(
 
             worked_days = worked_days_raw.apply(custom_round)
 
-            output_df = pd.DataFrame({
-                "ESI No": esi_no,
-                "MEMBER NAME": member_name,
-                "ESI GROSS": esi_gross,
-                "WORKED DAYS": worked_days,
-            })
+            output_df = pd.DataFrame(
+                {
+                    "ESI No": esi_no,
+                    "MEMBER NAME": member_name,
+                    "ESI GROSS": esi_gross,
+                    "WORKED DAYS": worked_days,
+                }
+            )
 
             combined_df = pd.concat([combined_df, output_df], ignore_index=True)
-            processed_files.append({
-                "filename": excel_file.filename,
-                "status": "success",
-                "message": "Processed successfully",
-            })
+            processed_files.append(
+                {
+                    "filename": excel_file.filename,
+                    "status": "success",
+                    "message": "Processed successfully",
+                }
+            )
 
         except Exception as e:
-            processed_files.append({
-                "filename": excel_file.filename,
-                "status": "error",
-                "message": f"Error processing file: {str(e)}",
-            })
+            processed_files.append(
+                {
+                    "filename": excel_file.filename,
+                    "status": "error",
+                    "message": f"Error processing file: {str(e)}",
+                }
+            )
             overall_status = "error"
             overall_message = "Some files had errors during processing."
 
@@ -1343,7 +1377,9 @@ async def process_esi_file(
             combined_df.to_excel(excel_file_path, index=False)
 
             # Save text file
-            output_lines = ["#~#".join(map(str, row)) for row in combined_df.values.tolist()]
+            output_lines = [
+                "#~#".join(map(str, row)) for row in combined_df.values.tolist()
+            ]
             header_line = "#~#".join(combined_df.columns)
             output_lines.insert(0, header_line)
 
@@ -1364,7 +1400,9 @@ async def process_esi_file(
         upload_date=first_day_of_month,
         source_folder=folder_name,
         processed_files_count=len(excel_files),
-        success_files_count=len([f for f in processed_files if f["status"] == "success"]),
+        success_files_count=len(
+            [f for f in processed_files if f["status"] == "success"]
+        ),
     )
 
     try:
@@ -1385,6 +1423,8 @@ async def process_esi_file(
         total_files=len(excel_files),
         successful_files=len([f for f in processed_files if f["status"] == "success"]),
     )
+
+
 ########################*******************************************#################################
 @app.get("/processed_files_esi", response_model=List[ProcessedFileResponse])
 async def get_processed_files_pf(

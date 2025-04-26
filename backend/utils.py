@@ -10,6 +10,7 @@ if not SECRET_KEY:
     raise ValueError("SECRET_KEY environment variable must be set")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 # Utility functions
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -17,13 +18,16 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
-def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
-        to_encode["exp"] = expire
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp":expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -84,9 +88,8 @@ def require_hr(current_user: UserModel = Depends(get_current_user)):
         )
     return current_user
 
-def create_refresh_token(data:dict,expire_delta:timedelta = timedelta(days=7)):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + expire_delta
-    to_encode.update({'exp':expire})
+def create_refresh_token(user:UserModel):
+    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode = {"sub":user.username,"exp":expire,"type":"refresh"}
     encoded_jwt = jwt.encode(to_encode,SECRET_KEY,algorithm=ALGORITHM)
     return encoded_jwt

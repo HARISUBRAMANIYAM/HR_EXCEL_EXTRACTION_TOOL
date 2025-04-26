@@ -14,11 +14,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
   requiredRole,
 }) => {
-  const { user, token, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <div className="loading">Loading...</div>;
-  }
+  const { user, token} = useAuth();
 
   if (!token || !user) {
     return <Navigate to="/login" replace />;
@@ -28,7 +24,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <Navigate to="/dashboard" replace />;
   }
 
-  return <>{children}</>;
+  return <>{token ? children : <Navigate to="/login" replace/>}</>;
 };
 
 export default ProtectedRoute;
