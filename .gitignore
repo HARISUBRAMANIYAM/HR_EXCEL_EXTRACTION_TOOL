@@ -67,3 +67,11 @@ backend/processed_excels_pf_concurrent
 E:/Modifyed_Project/HR_EXCEL_EXTRACTION_TOOL
 frontend/hr-extraction-frontend/node_modules
 HR_EXCEL_EXTRACTION_TOOL/frontend/hr-extraction-frontend/node_modules
+HR_EXCEL_EXTRACTION_TOOL
+/backend/hr_extraction2.db
+backend/processed_pf
+backend/processed_esi
+backend/new.txt
+backend/__pycache__
+backend/newmain.py
+backend/main.py

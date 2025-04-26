@@ -1,6 +1,6 @@
-// export default PFUpload;
 import React, { useState } from "react";
 import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../services/api";
 import { FileProcessResult } from "../../types";
@@ -8,7 +8,7 @@ import { FileProcessResult } from "../../types";
 const PFUpload: React.FC = () => {
   const { token } = useAuth();
   const [folderPath, setFolderPath] = useState("");
-  const [uploadDate, setUploadDate] = useState("");
+  const [uploadMonth, setUploadMonth] = useState("");
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<FileProcessResult | null>(null);
   const [error, setError] = useState("");
@@ -29,9 +29,9 @@ const PFUpload: React.FC = () => {
       return;
     }
 
-    if (!uploadDate) {
-      toast.error("Upload date is required");
-      setError("Upload date is required");
+    if (!uploadMonth) {
+      toast.error("Upload month is required");
+      setError("Upload month is required");
       return;
     }
 
@@ -47,31 +47,64 @@ const PFUpload: React.FC = () => {
     setError("");
     setResult(null);
     toast.info("Processing PF files...", { autoClose: false });
-
+    
     try {
+      // Convert from YYYY-MM format to MM-YYYY format
+      const [year, month] = uploadMonth.split("-");
+      const formattedMonth = `${month}-${year}`;
+
       const formData = new FormData();
       formData.append("folder_path", folderPath);
-      formData.append("upload_date", uploadDate);
+      // Changed the key from "upload_date" to "upload_month" to match the backend expectation
+      formData.append("upload_month", formattedMonth);
 
-      const response = await api.post("/process_folder_pf", formData, {
+      const response = await api.post("/process_folder_pf_new", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`,
         },
       });
 
       setResult(response.data);
       toast.success("PF files processed successfully!");
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message);
-      toast.error(err.response?.data?.detail || err.message);
+      console.error("Error details:", err);
+      
+      // Handle error object properly
+      let errorMessage = "An unexpected error occurred";
+      
+      if (err.response && err.response.data) {
+        // Handle response data which might be an object
+        if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data;
+        } else if (Array.isArray(err.response.data)) {
+          // Handle FastAPI validation error array
+          errorMessage = err.response.data.map((error: { loc: any[]; msg: any; }) => 
+            `Field '${error.loc.slice(1).join('.')}': ${error.msg}`
+          ).join(", ");
+        } else if (err.response.data.detail) {
+          // Handle FastAPI error format
+          errorMessage = typeof err.response.data.detail === 'string' 
+            ? err.response.data.detail 
+            : JSON.stringify(err.response.data.detail);
+        } else {
+          // Generic object handling
+          errorMessage = JSON.stringify(err.response.data);
+        }
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setProcessing(false);
     }
   };
-
-  // Get today's date in YYYY-MM-DD format for the default value
-  const today = new Date().toISOString().split("T")[0];
-
+  
+  // Get today's date in YYYY-MM format for the default value
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  
   return (
     <>
       <ToastContainer
@@ -91,20 +124,23 @@ const PFUpload: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="pf-upload-form">
           <div className="form-group">
-            <label htmlFor="uploadDate">
-              Upload Date
+            <label htmlFor="uploadMonth">
+              Upload Month
               <span className="required">*</span>
             </label>
             <input
-              id="uploadDate"
-              type="date"
-              name="uploadDate"
-              value={uploadDate}
-              onChange={(e) => setUploadDate(e.target.value)}
+              id="uploadMonth"
+              type="month"
+              name="uploadMonth"
+              value={uploadMonth}
+              onChange={(e) => setUploadMonth(e.target.value)}
               required
               disabled={processing}
-              max={today}
+              max={currentMonth}
             />
+            <small>
+              Select month and year (will be sent as MM-YYYY format)
+            </small>
           </div>
 
           <div className="form-group">
@@ -122,13 +158,14 @@ const PFUpload: React.FC = () => {
               required
               disabled={processing}
               title="Enter a valid Windows folder path"
+              autoComplete="off"
             />
           </div>
 
           <button
             type="submit"
             className="submit-button"
-            disabled={processing || !folderPath.trim() || !uploadDate}
+            disabled={processing || !folderPath.trim() || !uploadMonth}
           >
             {processing ? (
               <>
@@ -162,10 +199,9 @@ const PFUpload: React.FC = () => {
               <p>
                 <strong>Files Processed:</strong> {result.file_path}
               </p>
-              {result.upload_date && (
+              {result.upload_month && (
                 <p>
-                  <strong>Upload Date:</strong>{" "}
-                  {new Date(result.upload_date).toLocaleDateString()}
+                  <strong>Upload Month:</strong> {result.upload_month}
                 </p>
               )}
             </div>

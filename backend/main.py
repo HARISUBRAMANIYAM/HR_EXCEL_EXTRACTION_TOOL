@@ -22,6 +22,8 @@ from fastapi.responses import FileResponse
 import zipfile
 from fastapi.responses import StreamingResponse
 from io  import BytesIO
+
+from backend.models import ProcessedFileESI
 # Create a FastAPI instance
 app = FastAPI()
 
@@ -956,3 +958,31 @@ def create_db_tables():
 
 # Call the function to create tables
 create_db_tables()
+
+
+
+
+
+
+
+
+ 
+
+@app.get("/uploads/by-year-days/")
+def get_upload_days_by_year(year: int = Query(..., description="Year to filter uploads")):
+    session = SessionLocal()
+    try:
+        results = session.query(ProcessedFileESI.upload_month, ProcessedFileESI.upload_date)\
+            .filter(ProcessedFileESI.upload_date != None)\
+            .filter(ProcessedFileESI.upload_date.like(f"{year}-%"))\
+            .all()
+
+        return [
+            {
+                "month": row.upload_month,
+                "day": row.upload_date.day
+            }
+            for row in results
+        ]
+    finally:
+        session.close()

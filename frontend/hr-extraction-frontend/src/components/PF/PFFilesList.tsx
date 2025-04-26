@@ -1,17 +1,18 @@
-// export default PFFilesList;
 import React, { useEffect, useState } from "react";
 import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "../../context/AuthContext";
-import { ProcessedFile } from "../../types";
 import api from "../../services/api";
+import { ProcessedFile } from "../../types";
 
 interface PFFile extends ProcessedFile {
   uan_no?: string;
   member_name?: string;
   remittance_submitted?: boolean;
-  remittance_date?: string;
+  remittance_amount?: number;
+  remittance_month?: string;
   remittance_challan_path?: string;
-  upload_date?: string;
+  remittance_date?: string;
 }
 
 const PFFilesList: React.FC = () => {
@@ -27,22 +28,70 @@ const PFFilesList: React.FC = () => {
     direction: "asc" | "desc";
   } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [uploadDate, setUploadDate] = useState<string>(
-    new Date().toISOString().split("T")[0] // Today's date
+
+  // Get current date in YYYY-MM format for the month input
+  const currentYearMonth = new Date().toISOString().slice(0, 7);
+
+  // Store month value in YYYY-MM format for HTML input compatibility
+  const [uploadMonthInput, setUploadMonthInput] =
+    useState<string>(currentYearMonth);
+
+  // Store the actual backend format (MM-YYYY) derived from uploadMonthInput
+  const [uploadMonth, setUploadMonth] = useState<string>(
+    formatDateForBackend(currentYearMonth)
   );
+
   const [uploadingRemittance, setUploadingRemittance] = useState<number | null>(
     null
   );
-  const [remittanceDate, setRemittanceDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
+
+  // For remittance month in HTML input format (YYYY-MM)
+  const [remittanceMonthInput, setRemittanceMonthInput] =
+    useState<string>(currentYearMonth);
+
+  // Store the actual backend format (MM-YYYY) derived from remittanceMonthInput
+  const [remittanceMonth, setRemittanceMonth] = useState<string>(
+    formatDateForBackend(currentYearMonth)
   );
+
+  const [remittanceAmount, setRemittanceAmount] = useState<number>(0);
   const [remittanceFile, setRemittanceFile] = useState<File | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
 
+  // Function to convert YYYY-MM (HTML input format) to MM-YYYY (backend format)
+  function formatDateForBackend(dateString: string): string {
+    if (!dateString) return "";
+    const [year, month] = dateString.split("-");
+    return `${month}-${year}`;
+  }
+
+  // Function to convert MM-YYYY (backend format) to YYYY-MM (HTML input format)
+  function formatDateForInput(dateString: string): string {
+    if (!dateString) return "";
+    const [month, year] = dateString.split("-");
+    return `${year}-${month}`;
+  }
+
+  // Handle HTML month input change
+  const handleUploadMonthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputValue = e.target.value; // Format: YYYY-MM
+    setUploadMonthInput(inputValue);
+    setUploadMonth(formatDateForBackend(inputValue)); // Convert to MM-YYYY
+  };
+
+  // Handle remittance month input change
+  const handleRemittanceMonthChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const inputValue = e.target.value; // Format: YYYY-MM
+    setRemittanceMonthInput(inputValue);
+    setRemittanceMonth(formatDateForBackend(inputValue)); // Convert to MM-YYYY
+  };
+
   useEffect(() => {
     fetchFiles();
-  }, [token, uploadDate, selectedUserId]);
+  }, [token, uploadMonth, selectedUserId]);
 
   useEffect(() => {
     if (user?.role === "admin") {
@@ -68,17 +117,22 @@ const PFFilesList: React.FC = () => {
       setLoading(true);
       setError("");
       toast.info("Loading PF files...", { autoClose: 2000 });
-      
-      // Build the params object
+
       const params: Record<string, string> = {
-        upload_date: uploadDate
+        upload_month: uploadMonth, // Using MM-YYYY format
       };
 
       if (user?.role === "admin" && selectedUserId) {
         params.user_id = selectedUserId.toString();
       }
 
-      const response = await api.get("/processed_files_pf", { params });
+      const response = await api.get("/processed_files_pf", {
+        params,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
       setFiles(response.data);
       toast.success("PF files loaded successfully", { autoClose: 3000 });
       setSelectedFiles([]);
@@ -102,7 +156,7 @@ const PFFilesList: React.FC = () => {
       setError("");
 
       const response = await api.get(
-        `/processed_files_pf/${fileId}/download?file_type=${fileType}`,
+        `/processed_files_pf/${fileId}/download_new?file_type=${fileType}`,
         { responseType: "blob" }
       );
 
@@ -110,7 +164,7 @@ const PFFilesList: React.FC = () => {
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
-      a.download = `pf_report_${fileId}.${fileType}`;
+      a.download = `pf_report_${fileId}_${uploadMonth}.${fileType}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
@@ -133,9 +187,9 @@ const PFFilesList: React.FC = () => {
     try {
       toast.info(`Preparing ${selectedFiles.length} files for download...`);
       const fileIdsParam = selectedFiles.join(",");
-      
+
       const response = await api.get(
-        `/processed_files_pf/batch_download?file_ids=${fileIdsParam}`,
+        `/processed_files_pf/batch_download_new?file_ids=${fileIdsParam}`,
         { responseType: "blob" }
       );
 
@@ -143,7 +197,7 @@ const PFFilesList: React.FC = () => {
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
-      a.download = `pf_files_bundle_${uploadDate}.zip`;
+      a.download = `pf_files_bundle_${uploadMonth}.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
@@ -164,7 +218,7 @@ const PFFilesList: React.FC = () => {
       setError("");
 
       const response = await api.get(
-        `/processed_files_pf/${fileId}/remittance_challan`,
+        `/processed_files_pf/${fileId}/remittance_challan_new`,
         { responseType: "blob" }
       );
 
@@ -172,7 +226,7 @@ const PFFilesList: React.FC = () => {
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
-      a.download = `remittance_challan_${fileId}.pdf`;
+      a.download = `remittance_challan_${fileId}_${uploadMonth}.pdf`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
@@ -188,9 +242,9 @@ const PFFilesList: React.FC = () => {
   };
 
   const handleUploadRemittance = async (fileId: number) => {
-    if (!remittanceFile || !remittanceDate) {
-      toast.warning("Please select a remittance file and date");
-      setError("Please select a remittance file and date");
+    if (!remittanceFile || !remittanceMonth || !remittanceAmount) {
+      toast.warning("Please fill all remittance details");
+      setError("Please fill all remittance details");
       return;
     }
 
@@ -200,15 +254,22 @@ const PFFilesList: React.FC = () => {
       setError("");
 
       const formData = new FormData();
-      formData.append("remittance_date", remittanceDate);
+
+      const [year, month, day] = remittanceMonthInput.split("-");
+      const formattedDate = `${day}-${month}-${year}`;
+
+      formData.append("remittance_date", formattedDate); // Using MM-YYYY format
+      formData.append("remittance_amount", remittanceAmount.toString());
       formData.append("remittance_file", remittanceFile);
+
       const config = {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      };  
+      };
+
       await api.post(
-        `/processed_files_pf/${fileId}/submit_remittance`,
+        `/processed_files_pf/${fileId}/submit_remittance_new`,
         formData,
         config
       );
@@ -216,6 +277,7 @@ const PFFilesList: React.FC = () => {
       toast.success("Remittance uploaded successfully");
       fetchFiles();
       setRemittanceFile(null);
+      setRemittanceAmount(0);
       setUploadingRemittance(null);
     } catch (err) {
       const errorMessage =
@@ -226,7 +288,15 @@ const PFFilesList: React.FC = () => {
       setUploadingRemittance(null);
     }
   };
+  // const handleAmountInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+  //   const input = e.target.value;
 
+  //   // Only update state if the input matches our pattern or is empty
+  //   if (input === '' || /^\d*\.?\d*$/.test(input)) {
+  //     setRemittanceAmount(input);
+  //   }
+  //   // If invalid, we just don't update the state, so the input value won't change
+  // };
   const toggleFileSelection = (fileId: number) => {
     setSelectedFiles((prev) =>
       prev.includes(fileId)
@@ -246,7 +316,10 @@ const PFFilesList: React.FC = () => {
     }
     setSelectAll(!selectAll);
   };
-
+  const getMonthName = (dateStr: string): string => {
+    const date = new Date(dateStr);
+    return date.toLocaleString("default", { month: "long" });
+  };
   const filteredAndSortedFiles = [...files]
     .filter((file) =>
       file.filename?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -280,6 +353,54 @@ const PFFilesList: React.FC = () => {
       return { key, direction: "asc" };
     });
   };
+  const getMonthNameFromMMYYYY = (mmYYYY: string): string => {
+    const [month, year] = mmYYYY.split("-").map(Number);
+    const date = new Date(year, month - 1); // month is 0-indexed
+    return date.toLocaleString("default", { month: "long" });
+  };
+
+  const RemittanceUploadForm = ({ fileId }: { fileId: number }) => (
+    <div className="remittance-upload-form">
+      <div className="remittance-fields">
+        <input
+          type="date"
+          value={remittanceMonthInput}
+          onChange={handleRemittanceMonthChange}
+          aria-label="inputdate"
+        />
+        <input
+          type="number"
+          value={remittanceAmount}
+          onChange={(e) => setRemittanceAmount(parseFloat(e.target.value))}
+          min="0"
+          step="10000"
+          placeholder="Amount"
+          aria-label="amountinput"
+        />
+        <input
+          type="file"
+          accept=".pdf"
+          onChange={(e) => setRemittanceFile(e.target.files?.[0] || null)}
+          aria-label="pdfinput"
+        />
+      </div>
+      <div className="remittance-actions">
+        <button
+          className="submit-button"
+          onClick={() => handleUploadRemittance(fileId)}
+          disabled={!remittanceFile || remittanceAmount === 0}
+        >
+          Submit
+        </button>
+        <button
+          className="cancel-button"
+          onClick={() => setUploadingRemittance(null)}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -309,15 +430,14 @@ const PFFilesList: React.FC = () => {
         <div className="file-header">
           <div className="controls-container">
             <div className="date-selector">
-              <label htmlFor="date-selector">Select Date:</label>
+              <label htmlFor="month-selector">Select Month:</label>
               <input
-                type="date"
-                id="date-selector"
-                value={uploadDate}
-                onChange={(e) => setUploadDate(e.target.value)}
+                type="month"
+                id="month-selector"
+                value={uploadMonthInput}
+                onChange={handleUploadMonthChange}
                 className="date-input"
               />
-              {/* Add user selector for Admin role */}
               {user?.role && user.role === "admin" && (
                 <div className="user-selector">
                   <label htmlFor="user-selector">User:</label>
@@ -385,7 +505,7 @@ const PFFilesList: React.FC = () => {
         )}
 
         {files.length === 0 ? (
-          <p className="no-files">No PF Remittance found for this date</p>
+          <p className="no-files">No PF Remittance found for {uploadMonth}</p>
         ) : (
           <table className="files-table">
             <thead>
@@ -403,6 +523,7 @@ const PFFilesList: React.FC = () => {
                     : ""}
                 </th>
                 <th>Status</th>
+                <th>Month</th>
                 <th
                   onClick={() => handleSort("created_at")}
                   style={{ cursor: "pointer" }}
@@ -415,6 +536,9 @@ const PFFilesList: React.FC = () => {
                     : ""}
                 </th>
                 <th>Remittance</th>
+                {user?.role === "admin" && !selectedUserId && (
+                  <th>Submitted BY</th>
+                )}
                 <th>Actions</th>
               </tr>
             </thead>
@@ -436,16 +560,19 @@ const PFFilesList: React.FC = () => {
                       {file.status.toUpperCase()}
                     </span>
                   </td>
-                  <td>{new Date(file.created_at).toLocaleString()}</td>
+                  <td>
+                    {file.remittance_month
+                      ? getMonthNameFromMMYYYY(file.remittance_month)
+                      : "N/A"}
+                  </td>
+                  <td>{file.created_at.split("T")[0]}</td>
                   <td>
                     {file.status === "success" ? (
                       file.remittance_submitted ? (
                         <div className="remittance-info">
                           <span className="status-badge success">
-                            Submitted:{" "}
-                            {new Date(
-                              file.remittance_date || ""
-                            ).toLocaleDateString()}
+                            Submitted {file.remittance_date} - ₹
+                            {file.remittance_amount?.toFixed(2)}
                           </span>
                           <button
                             className="download-button small"
@@ -458,42 +585,7 @@ const PFFilesList: React.FC = () => {
                           </button>
                         </div>
                       ) : uploadingRemittance === file.id ? (
-                        <div className="remittance-upload-form">
-                          <div className="remittance-fields">
-                            <input
-                              type="date"
-                              value={remittanceDate}
-                              onChange={(e) =>
-                                setRemittanceDate(e.target.value)
-                              }
-                              max={new Date().toISOString().split("T")[0]}
-                              aria-label="inputdate"
-                            />
-                            <input
-                              type="file"
-                              accept=".pdf"
-                              onChange={(e) =>
-                                setRemittanceFile(e.target.files?.[0] || null)
-                              }
-                              aria-label="pdfinput"
-                            />
-                          </div>
-                          <div className="remittance-actions">
-                            <button
-                              className="submit-button"
-                              onClick={() => handleUploadRemittance(file.id)}
-                              disabled={!remittanceFile}
-                            >
-                              Submit
-                            </button>
-                            <button
-                              className="cancel-button"
-                              onClick={() => setUploadingRemittance(null)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
+                        <RemittanceUploadForm fileId={file.id} />
                       ) : (
                         <button
                           className="upload-button"
@@ -506,6 +598,16 @@ const PFFilesList: React.FC = () => {
                       <span>N/A</span>
                     )}
                   </td>
+                  {user?.role === "admin" && !selectedUserId && (
+                    <td>
+                      {
+                        <td>
+                          {users.find((u) => u.id === file.user_id)?.name ||
+                            "Unknown User"}
+                        </td>
+                      }
+                    </td>
+                  )}
                   <td className="actions">
                     {file.status === "success" ? (
                       <div className="download-buttons">

@@ -8,7 +8,7 @@ import { FileProcessResult } from "../../types";
 const EsiUpload: React.FC = () => {
   const { token } = useAuth();
   const [folderPath, setFolderPath] = useState("");
-  const [uploadDate, setUploadDate] = useState("");
+  const [uploadMonth, setUploadMonth] = useState("");
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<FileProcessResult | null>(null);
   const [error, setError] = useState("");
@@ -29,9 +29,9 @@ const EsiUpload: React.FC = () => {
       return;
     }
 
-    if (!uploadDate.trim()) {
-      toast.error("Upload date is required");
-      setError("Upload date is required");
+    if (!uploadMonth) {
+      toast.error("Upload month is required");
+      setError("Upload month is required");
       return;
     }
 
@@ -46,13 +46,18 @@ const EsiUpload: React.FC = () => {
     setProcessing(true);
     setError("");
     setResult(null);
-    toast.info("Processing PF files...", { autoClose: false });
+    toast.info("Processing ESI files...", { autoClose: false });
+
     try {
+      // Convert from YYYY-MM format to MM-YYYY format
+      const [year, month] = uploadMonth.split("-");
+      const formattedMonth = `${month}-${year}`;
+
       const formData = new FormData();
       formData.append("folder_path", folderPath);
-      formData.append("upload_date", uploadDate);
+      formData.append("upload_month", formattedMonth); // Changed parameter name to match backend
 
-      const response = await api.post("/esi_upload", formData, {
+      const response = await api.post("/process_folder_esi_new", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
@@ -69,8 +74,8 @@ const EsiUpload: React.FC = () => {
     }
   };
 
-  // Get today's date in YYYY-MM-DD format for the default value
-  const today = new Date().toISOString().split("T")[0];
+  // Get today's date in YYYY-MM format for the default value
+  const currentMonth = new Date().toISOString().slice(0, 7);
 
   return (
     <div className="esi-upload-container">
@@ -90,16 +95,19 @@ const EsiUpload: React.FC = () => {
       <h1>Process Folder For ESI</h1>
       <form onSubmit={handleSubmit} className="upload-form">
         <div className="form-group">
-          <label htmlFor="uploadDate">Upload Date</label>
+          <label htmlFor="uploadMonth">Upload Month</label>
           <input
-            id="uploadDate"
-            type="date"
-            value={uploadDate}
-            onChange={(e) => setUploadDate(e.target.value)}
+            id="uploadMonth"
+            type="month"
+            value={uploadMonth}
+            onChange={(e) => setUploadMonth(e.target.value)}
             required
             disabled={processing}
-            max={today}
+            max={currentMonth}
           />
+          <small>
+            Select month and year (will be converted to MM-YYYY format)
+          </small>
         </div>
         <div className="form-group">
           <label htmlFor="folderPath">Folder Path for ESI</label>
@@ -117,7 +125,7 @@ const EsiUpload: React.FC = () => {
         <button
           type="submit"
           className="submit-button"
-          disabled={processing || !folderPath.trim() || !uploadDate.trim()}
+          disabled={processing || !folderPath.trim() || !uploadMonth}
         >
           {processing ? (
             <>
@@ -151,7 +159,7 @@ const EsiUpload: React.FC = () => {
             <strong>Folder Path:</strong> {result.file_path}
           </p>
           <p>
-            <strong>Upload Date:</strong> {result.upload_date}
+            <strong>Upload Month:</strong> {result.upload_month}
           </p>
         </div>
       )}
@@ -159,7 +167,7 @@ const EsiUpload: React.FC = () => {
       <div className="instructions">
         <h3>Instructions</h3>
         <ol>
-          <li>Select the upload date for the ESI data.</li>
+          <li>Select the upload month for the ESI data.</li>
           <li>
             Enter the full path to the folder containing Excel files with
             employee data.

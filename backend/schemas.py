@@ -5,6 +5,8 @@ from collections import defaultdict
 from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from enum import Enum as PyEnum
+from typing import List, Dict, Any
+from pydantic import BaseModel
 
 
 class ProcessingType(str, Enum):
@@ -80,7 +82,10 @@ class FileProcessResult(BaseModel):
     file_path: str
     status: str
     message: str
-    upload_date: Optional[date] = None
+    upload_month: str  # This was missing in your response
+
+    class Config:
+        orm_mode = True
 
 
 class ProcessedFileResponse(BaseModel):
@@ -92,9 +97,11 @@ class ProcessedFileResponse(BaseModel):
     message: str
     upload_date: Optional[date] = None
     remittance_submitted: bool = False
-    remittance_date: Optional[date] = None
+    remittance_date: Optional[str] = None
     remittance_challan_path: Optional[str] = None
+    remittance_amount: Optional[float]
     created_at: datetime
+    remittance_month:Optional[str]=None
     updated_at: Optional[datetime] = None
 
     @validator("updated_at", pre=True)
@@ -105,21 +112,16 @@ class ProcessedFileResponse(BaseModel):
         from_attributes = True
 
 
-class DashboardStats(BaseModel):
-    total_files: int
-    success_files: int
-    error_files: int
-    recent_files: List[ProcessedFileResponse]
-    pf_files: Optional[int] = None  # Optional breakdown
-    esi_files: Optional[int] = None  # Optional breakdown
-    pf_success: Optional[int] = None
-    pf_error: Optional[int] = None
-    esi_success: Optional[int] = None
-    esi_error: Optional[int] = None
-    monthly_stats: Dict[str, Any]  # New field for monthly breakdown
-    remittance_stats: Dict[str, Any]  # New field for remittance tracking
-    user_activity: Dict[str, Any]
-    remittance_delays: List[Dict[str, Any]]
+class ChartData(BaseModel):
+    labels: List[str]
+    data: List[float]
+
+
+class RemittanceDashboardStats(BaseModel):
+    challan_amounts: ChartData
+    pf_submissions: ChartData
+    esi_submissions: ChartData
+    delayed_submissions: ChartData
 
 
 class DirectoryFile(BaseModel):
@@ -132,3 +134,61 @@ class DirectoryFile(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+
+class SubmissionPoint(BaseModel):
+    """Data point for submission scatter plot"""
+    x: int  # Day of month
+    y: float  # Amount
+    r: int = 5  # Radius
+
+class DelayedSubmission(BaseModel):
+    """Data point for delayed submissions"""
+    delay_days: int
+    amount: float
+
+class MonthlyAmountData(BaseModel):
+    """Monthly amounts data structure"""
+    labels: List[str]  # Month names
+    datasets: Dict[str, List[float]]  # PF and ESI amounts
+
+class SubmissionData(BaseModel):
+    """Submission timeline data"""
+    labels: List[str]  # Month names
+    points: List[List[SubmissionPoint]]  # Points for each month
+
+class DelayedData(BaseModel):
+    """Delayed submissions data"""
+    labels: List[str]  # Month names
+    datasets: Dict[str, List[List[DelayedSubmission]]]  # PF and ESI delayed submissions
+
+class SummaryStats(BaseModel):
+    """Summary statistics for dashboard"""
+    total_pf: str
+    total_esi: str
+    pf_submissions: int
+    esi_submissions: int
+    on_time_rate: float
+    avg_pf: str
+    avg_esi: str
+
+class RemittanceDashboardStats(BaseModel):
+    """Complete dashboard statistics response"""
+    monthly_amounts: MonthlyAmountData
+    pf_submissions: SubmissionData
+    esi_submissions: SubmissionData
+    delayed_submissions: DelayedData
+    summary_stats: SummaryStats
+    year: int
+class DelayedData(BaseModel):
+    labels: List[str]
+    datasets: Dict[str, List[List[DelayedSubmission]]]
+
+
+class RemittanceDashboardStats(BaseModel):
+    monthly_amounts: MonthlyAmountData
+    pf_submissions: SubmissionData
+    esi_submissions: SubmissionData
+    delayed_submissions: DelayedData
+    summary_stats: SummaryStats
+    year: int
