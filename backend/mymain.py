@@ -195,7 +195,10 @@ def refresh_token(req: RefreshTokenRequest, db: Session = Depends(get_db)):
 # ********************************************************************************************#
 @app.post("/process_folder_pf_new", response_model=FileProcessResult)
 async def process_folder(
-    folder_path: str = Form(..., min_length=3, max_length=500),
+    files: List[UploadFile] = File(
+        ..., description="List of Excel files from the folder"
+    ),
+    folder_name: str = Form(..., min_length=1, max_length=500),
     current_user: UserModel = Depends(require_hr_or_admin),
     upload_month: str = Form(..., description="Month in MM-YYYY format"),
     db: Session = Depends(get_db),
@@ -210,54 +213,31 @@ async def process_folder(
             detail="Invalid date format. Please use MM-YYYY format (e.g., 05-2023)",
         )
 
-    folder = Path(folder_path)
-    if not folder_path.strip():
-        raise HTTPException(status_code=422, detail="Folder path cannot be empty")
-    if not folder.is_dir():
-        error_message = f"Invalid folder path: {folder_path}"
-        db_file = ProcessedFilePF(
-            user_id=current_user.id,
-            filename="N/A",
-            filepath=folder_path,
-            status="error",
-            message=error_message,
-            upload_month=upload_month,
-            upload_date=first_day_of_month,
-        )
-        db.add(db_file)
-        db.commit()
-        raise HTTPException(status_code=400, detail=error_message)
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
 
-    excel_files = list(folder.glob("*.xls*"))
+    # Filter only Excel files
+    excel_files = [
+        file for file in files if file.filename.lower().endswith((".xls", ".xlsx"))
+    ]
     if not excel_files:
-        error_message = f"No Excel files found in the folder: {folder_path}"
-        db_file = ProcessedFilePF(
-            user_id=current_user.id,
-            filename="N/A",
-            filepath=folder_path,
-            status="error",
-            message=error_message,
-            upload_month=upload_month,
-            upload_date=first_day_of_month,
+        raise HTTPException(
+            status_code=400, detail="No Excel files found in the upload"
         )
-        db.add(db_file)
-        db.commit()
-        raise HTTPException(status_code=400, detail=error_message)
+
+    # Create output directory
     timestamp_folder = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Prepare output directories with month and source folder name
     output_dir = Path("processed_pf") / upload_month / timestamp_folder
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate unique filename for this processing run
+    # Generate unique filenames
     processing_id = uuid.uuid4().hex[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     excel_filename = f"{upload_month.replace('-', '_')}_{timestamp}.xlsx"
     text_filename = f"{upload_month.replace('-', '_')}_{timestamp}.txt"
-
     excel_file_path = output_dir / excel_filename
     text_file_path = output_dir / text_filename
 
-    # Rest of your processing logic remains the same...
     # Initialize combined DataFrame
     combined_df = pd.DataFrame()
     processed_files = []
@@ -268,15 +248,17 @@ async def process_folder(
     for excel_file in excel_files:
         try:
             # Read Excel file
-            if excel_file.suffix == ".xlsx":
-                df = pd.read_excel(excel_file, dtype={"UAN No": str})
+            if excel_file.filename.lower().endswith(".xlsx"):
+                df = pd.read_excel(excel_file.file, dtype={"UAN No": str})
             else:
-                df = pd.read_excel(excel_file, engine="xlrd", dtype={"UAN No": str})
+                df = pd.read_excel(
+                    excel_file.file, engine="xlrd", dtype={"UAN No": str}
+                )
 
             if df.empty:
                 raise ValueError("Excel file is empty")
 
-            # Check for required columns (same as before)
+            # Check for required columns
             required_columns = {
                 "UAN No": ["UAN No"],
                 "Employee Name": ["Employee Name"],
@@ -302,7 +284,7 @@ async def process_folder(
                     f"Missing required columns: {', '.join(missing_columns)}"
                 )
 
-            # Process data (same as before)
+            # Process data
             uan_no = df[column_mapping["UAN No"]].astype(str).str.replace("-", "")
             member_name = df[column_mapping["Employee Name"]]
             gross_wages = (
@@ -350,19 +332,18 @@ async def process_folder(
             combined_df = pd.concat([combined_df, output_df], ignore_index=True)
             processed_files.append(
                 {
-                    "filename": excel_file.name,
+                    "filename": excel_file.filename,
                     "status": "success",
                     "message": "Processed successfully",
                 }
             )
 
         except Exception as e:
-            error_message = f"Error processing file {excel_file.name}: {str(e)}"
             processed_files.append(
                 {
-                    "filename": excel_file.name,
+                    "filename": excel_file.filename,
                     "status": "error",
-                    "message": error_message,
+                    "message": f"Error processing file: {str(e)}",
                 }
             )
             overall_status = "error"
@@ -387,7 +368,7 @@ async def process_folder(
             overall_status = "error"
             overall_message = f"Error saving combined files: {str(e)}"
 
-    # Create a single database record for the entire processing
+    # Create database record
     db_record = ProcessedFilePF(
         user_id=current_user.id,
         filename=excel_filename,
@@ -395,7 +376,7 @@ async def process_folder(
         status=overall_status,
         message=overall_message,
         upload_month=upload_month,
-        upload_date=first_day_of_month,  # Add this field if your model has it
+        upload_date=first_day_of_month,
     )
 
     try:
@@ -408,10 +389,13 @@ async def process_folder(
         )
 
     return FileProcessResult(
-        file_path=folder_path,
         status=overall_status,
         message=overall_message,
         upload_month=upload_month,
+        file_path=str(excel_file_path),
+        processed_files=processed_files,
+        total_files=len(excel_files),
+        successful_files=len([f for f in processed_files if f["status"] == "success"]),
     )
 
 
@@ -545,7 +529,7 @@ async def get_processed_files_pf(
     query = db.query(ProcessedFilePF).filter(
         ProcessedFilePF.upload_date >= first_day_of_month,
         ProcessedFilePF.upload_date <= last_day_of_month,
-        ProcessedFilePF.filename.like(f"combined_pf_{upload_month.replace('-', '_')}%"),
+        ProcessedFilePF.filename.like(f"%{upload_month.replace('-', '_')}%"),
     )
 
     # Apply user filtering
@@ -566,9 +550,7 @@ async def get_processed_files_pf(
             .filter(
                 ProcessedFilePF.upload_date >= first_day_of_month,
                 ProcessedFilePF.upload_date <= last_day_of_month,
-                ProcessedFilePF.filename.like(
-                    f"combined_pf_{upload_month.replace('-', '_')}%"
-                ),
+                ProcessedFilePF.filename.like(f"%{upload_month.replace('-', '_')}%"),
             )
             .group_by(ProcessedFilePF.user_id)
             .subquery()
@@ -587,7 +569,7 @@ async def get_processed_files_pf(
 
     files = query.all()
 
-    # Verify file existence
+    # Verify file existence and enrich response with additional data
     valid_files = []
     for file in files:
         if file.status == "success":
@@ -595,8 +577,23 @@ async def get_processed_files_pf(
             if len(filepaths) == 2:
                 excel_path = Path(filepaths[0])
                 text_path = Path(filepaths[1])
+
                 if excel_path.exists() and text_path.exists():
-                    valid_files.append(file)
+                    # Add additional information from the new fields
+                    file_details = {
+                        "id": file.id,
+                        "filename": file.filename,
+                        "status": file.status,
+                        "message": file.message,
+                        "upload_month": file.upload_month,
+                        "created_at": file.created_at,
+                        "source_folder": file.source_folder,
+                        "processed_files_count": file.processed_files_count,
+                        "success_files_count": file.success_files_count,
+                        "excel_file_url": f"/download/pf/{file.id}/excel",
+                        "text_file_url": f"/download/pf/{file.id}/text",
+                    }
+                    valid_files.append(file_details)
                 else:
                     # Update DB record if files are missing
                     file.status = "error"
@@ -607,15 +604,29 @@ async def get_processed_files_pf(
                 file.message = "Invalid file path format in database"
                 db.add(file)
         else:
-            valid_files.append(file)
+            # Include failed processing attempts with their error details
+            valid_files.append(
+                {
+                    "id": file.id,
+                    "filename": file.filename,
+                    "status": file.status,
+                    "message": file.message,
+                    "upload_month": file.upload_month,
+                    "created_at": file.created_at,
+                    "source_folder": file.source_folder,
+                    "processed_files_count": file.processed_files_count,
+                    "success_files_count": file.success_files_count,
+                }
+            )
 
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         # Log the error but continue with the response
+        logger.error(f"Error committing database changes: {str(e)}")
 
-    return [ProcessedFileResponse.from_orm(file) for file in valid_files]
+    return valid_files
 
 
 # *************************************************************************
@@ -1186,7 +1197,8 @@ async def process_esi_file(
 # *******************************************************************************
 @app.post("/process_folder_esi_new", response_model=FileProcessResult)
 async def process_esi_file(
-    folder_path: str = Form(...),
+    files: List[UploadFile] = File(..., description="List of Excel files from the folder"),
+    folder_name: str = Form(..., min_length=1, max_length=500),
     upload_month: str = Form(..., description="Month in MM-YYYY format"),
     current_user: UserModel = Depends(require_hr_or_admin),
     db: Session = Depends(get_db),
@@ -1201,51 +1213,23 @@ async def process_esi_file(
             detail="Invalid date format. Please use MM-YYYY format (e.g., 05-2023)",
         )
 
-    folder = Path(folder_path)
-    if not folder_path.strip():
-        raise HTTPException(status_code=422, detail="Folder path cannot be empty")
-    if not folder.is_dir():
-        error_message = f"Invalid folder path: {folder_path}"
-        db_file = ProcessedFileESI(
-            user_id=current_user.id,
-            filename="N/A",
-            filepath=folder_path,
-            status="error",
-            message=error_message,
-            upload_month=upload_month,
-            upload_date=first_day_of_month,
-        )
-        db.add(db_file)
-        db.commit()
-        raise HTTPException(status_code=400, detail=error_message)
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
 
-    excel_files = list(folder.glob("*.xls*"))
+    # Filter only Excel files
+    excel_files = [file for file in files if file.filename.lower().endswith(('.xls', '.xlsx'))]
     if not excel_files:
-        error_message = f"No Excel files found in the folder: {folder_path}"
-        db_file = ProcessedFileESI(
-            user_id=current_user.id,
-            filename="N/A",
-            filepath=folder_path,
-            status="error",
-            message=error_message,
-            upload_month=upload_month,
-            upload_date=first_day_of_month,
-        )
-        db.add(db_file)
-        db.commit()
-        raise HTTPException(status_code=400, detail=error_message)
+        raise HTTPException(status_code=400, detail="No Excel files found in the upload")
 
-    # Prepare output directory with month folder
+    # Prepare output directory
     timestamp_folder = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = Path("processed_esi") / upload_month / timestamp_folder
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate unique filenames with timestamp
+    # Generate unique filenames
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    processing_id = uuid.uuid4().hex[:8]
     excel_filename = f"{upload_month.replace('-', '_')}_{timestamp}.xlsx"
     text_filename = f"{upload_month.replace('-', '_')}_{timestamp}.txt"
-
     excel_file_path = output_dir / excel_filename
     text_file_path = output_dir / text_filename
 
@@ -1259,10 +1243,10 @@ async def process_esi_file(
     for excel_file in excel_files:
         try:
             # Read Excel file
-            if excel_file.suffix == ".xlsx":
-                df = pd.read_excel(excel_file, dtype={"ESI N0": str})
+            if excel_file.filename.lower().endswith('.xlsx'):
+                df = pd.read_excel(excel_file.file, dtype={"ESI N0": str})
             else:
-                df = pd.read_excel(excel_file, engine="xlrd", dtype={"ESI N0": str})
+                df = pd.read_excel(excel_file.file, engine="xlrd", dtype={"ESI N0": str})
 
             if df.empty:
                 raise ValueError("Excel file is empty")
@@ -1288,9 +1272,7 @@ async def process_esi_file(
                     missing_columns.append(field)
 
             if missing_columns:
-                raise ValueError(
-                    f"Missing required columns: {', '.join(missing_columns)}"
-                )
+                raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
 
             # Filter valid rows
             esi_column = df[column_mapping["ESI No"]]
@@ -1331,33 +1313,26 @@ async def process_esi_file(
 
             worked_days = worked_days_raw.apply(custom_round)
 
-            output_df = pd.DataFrame(
-                {
-                    "ESI No": esi_no,
-                    "MEMBER NAME": member_name,
-                    "ESI GROSS": esi_gross,
-                    "WORKED DAYS": worked_days,
-                }
-            )
+            output_df = pd.DataFrame({
+                "ESI No": esi_no,
+                "MEMBER NAME": member_name,
+                "ESI GROSS": esi_gross,
+                "WORKED DAYS": worked_days,
+            })
 
             combined_df = pd.concat([combined_df, output_df], ignore_index=True)
-            processed_files.append(
-                {
-                    "filename": excel_file.name,
-                    "status": "success",
-                    "message": "Processed successfully",
-                }
-            )
+            processed_files.append({
+                "filename": excel_file.filename,
+                "status": "success",
+                "message": "Processed successfully",
+            })
 
         except Exception as e:
-            error_message = f"Error processing file {excel_file.name}: {str(e)}"
-            processed_files.append(
-                {
-                    "filename": excel_file.name,
-                    "status": "error",
-                    "message": error_message,
-                }
-            )
+            processed_files.append({
+                "filename": excel_file.filename,
+                "status": "error",
+                "message": f"Error processing file: {str(e)}",
+            })
             overall_status = "error"
             overall_message = "Some files had errors during processing."
 
@@ -1368,9 +1343,7 @@ async def process_esi_file(
             combined_df.to_excel(excel_file_path, index=False)
 
             # Save text file
-            output_lines = [
-                "#~#".join(map(str, row)) for row in combined_df.values.tolist()
-            ]
+            output_lines = ["#~#".join(map(str, row)) for row in combined_df.values.tolist()]
             header_line = "#~#".join(combined_df.columns)
             output_lines.insert(0, header_line)
 
@@ -1380,7 +1353,7 @@ async def process_esi_file(
             overall_status = "error"
             overall_message = f"Error saving combined files: {str(e)}"
 
-    # Create database record
+    # Create database record with additional metadata
     db_record = ProcessedFileESI(
         user_id=current_user.id,
         filename=excel_filename,
@@ -1389,6 +1362,9 @@ async def process_esi_file(
         message=overall_message,
         upload_month=upload_month,
         upload_date=first_day_of_month,
+        source_folder=folder_name,
+        processed_files_count=len(excel_files),
+        success_files_count=len([f for f in processed_files if f["status"] == "success"]),
     )
 
     try:
@@ -1401,13 +1377,14 @@ async def process_esi_file(
         )
 
     return FileProcessResult(
-        file_path=folder_path,
         status=overall_status,
         message=overall_message,
         upload_month=upload_month,
+        file_path=str(excel_file_path),
+        processed_files=processed_files,
+        total_files=len(excel_files),
+        successful_files=len([f for f in processed_files if f["status"] == "success"]),
     )
-
-
 ########################*******************************************#################################
 @app.get("/processed_files_esi", response_model=List[ProcessedFileResponse])
 async def get_processed_files_pf(

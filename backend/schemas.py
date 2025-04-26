@@ -83,6 +83,9 @@ class FileProcessResult(BaseModel):
     status: str
     message: str
     upload_month: str  # This was missing in your response
+    processed_files: List[dict] = []
+    total_files: int = 0
+    successful_files: int = 0
 
     class Config:
         orm_mode = True
@@ -101,8 +104,13 @@ class ProcessedFileResponse(BaseModel):
     remittance_challan_path: Optional[str] = None
     remittance_amount: Optional[float]
     created_at: datetime
-    remittance_month:Optional[str]=None
+    remittance_month: Optional[str] = None
     updated_at: Optional[datetime] = None
+    source_folder: Optional[str] = None
+    processed_files_count: Optional[int] = None
+    success_files_count: Optional[int] = None
+    excel_file_url: Optional[str] = None
+    text_file_url: Optional[str] = None
 
     @validator("updated_at", pre=True)
     def handle_none_updated_at(cls, v):
@@ -138,32 +146,43 @@ class RefreshTokenRequest(BaseModel):
 
 class SubmissionPoint(BaseModel):
     """Data point for submission scatter plot"""
+
     x: int  # Day of month
     y: float  # Amount
     r: int = 5  # Radius
 
+
 class DelayedSubmission(BaseModel):
     """Data point for delayed submissions"""
+
     delay_days: int
     amount: float
 
+
 class MonthlyAmountData(BaseModel):
     """Monthly amounts data structure"""
+
     labels: List[str]  # Month names
     datasets: Dict[str, List[float]]  # PF and ESI amounts
 
+
 class SubmissionData(BaseModel):
     """Submission timeline data"""
+
     labels: List[str]  # Month names
     points: List[List[SubmissionPoint]]  # Points for each month
 
+
 class DelayedData(BaseModel):
     """Delayed submissions data"""
+
     labels: List[str]  # Month names
     datasets: Dict[str, List[List[DelayedSubmission]]]  # PF and ESI delayed submissions
 
+
 class SummaryStats(BaseModel):
     """Summary statistics for dashboard"""
+
     total_pf: str
     total_esi: str
     pf_submissions: int
@@ -172,14 +191,18 @@ class SummaryStats(BaseModel):
     avg_pf: str
     avg_esi: str
 
+
 class RemittanceDashboardStats(BaseModel):
     """Complete dashboard statistics response"""
+
     monthly_amounts: MonthlyAmountData
     pf_submissions: SubmissionData
     esi_submissions: SubmissionData
     delayed_submissions: DelayedData
     summary_stats: SummaryStats
     year: int
+
+
 class DelayedData(BaseModel):
     labels: List[str]
     datasets: Dict[str, List[List[DelayedSubmission]]]

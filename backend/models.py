@@ -79,6 +79,9 @@ class ProcessedFilePF(Base):
     remittance_month = Column(String, nullable=True)
     remittance_amount = Column(Float)
     remittance_challan_path = Column(String, nullable=True)
+    source_folder = Column(String)  # Add this line
+    processed_files_count = Column(Integer)  # Add this line
+    success_files_count = Column(Integer) 
     user = relationship("UserModel", back_populates="processed_files_pf")
 
 
@@ -101,6 +104,9 @@ class ProcessedFileESI(Base):
     remittance_month = Column(String, nullable=True)
     remittance_amount = Column(Float)
     remittance_challan_path = Column(String, nullable=True)
+    source_folder = Column(String)  # Add this line
+    processed_files_count = Column(Integer)  # Add this line
+    success_files_count = Column(Integer) 
     user = relationship("UserModel", back_populates="processed_files_esi")
 
 
