@@ -298,7 +298,7 @@ export default function RemittanceDashboard() {
             </select>
           </div>
           <div className="filter-group">
-            <label className="filter-label">Month (for cards):</label>
+            <label className="filter-label"> Month:</label>
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(parseInt(e.target.value))}

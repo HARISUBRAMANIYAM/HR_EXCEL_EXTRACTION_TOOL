@@ -107,7 +107,7 @@ const PFUpload: React.FC = () => {
     setProcessing(true);
     setError("");
     setResult(null);
-    toast.info("Processing PF files...", { autoClose: false });
+    toast.info("Processing PF files...", { autoClose: 1000 });
 
     try {
       // Convert from YYYY-MM format to MM-YYYY format
@@ -171,7 +171,7 @@ const PFUpload: React.FC = () => {
     <>
       <ToastContainer
         position="top-right"
-        autoClose={5000}
+        autoClose={3000}
         hideProgressBar={false}
         newestOnTop={false}
         closeOnClick
@@ -184,7 +184,7 @@ const PFUpload: React.FC = () => {
       <div className="pf-upload-container">
         <h1>Upload PF Remittance</h1>
 
-        <form onSubmit={handleSubmit} className="pf-upload-form">
+        <form onSubmit={handleSubmit} noValidate className="pf-upload-form">
           <div className="form-group">
             <label htmlFor="uploadMonth">
               Upload Month
@@ -218,8 +218,6 @@ const PFUpload: React.FC = () => {
               onDrop={handleDrop}
             >
               <div className="drop-zone-content">
-                <p>Drag and drop your PF folder here</p>
-                <p>or</p>
                 <label htmlFor="fileInput" className="browse-button">
                   Browse Files
                   <input
@@ -293,7 +291,7 @@ const PFUpload: React.FC = () => {
 
         <div className="instructions">
           <h3>PF Remittance Requirements</h3>
-          <ul>
+          <ol>
             <li>Excel files (.xlsx, .xls) containing PF data</li>
             <li>
               Required columns:
@@ -317,7 +315,7 @@ const PFUpload: React.FC = () => {
             </li>
             <li>All Excel files should be in the specified folder</li>
             <li>Folder should contain only relevant PF Remittance</li>
-          </ul>
+          </ol>
         </div>
       </div>
     </>

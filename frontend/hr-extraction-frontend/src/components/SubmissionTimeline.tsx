@@ -59,7 +59,7 @@ const data = {
 const allMonthsList = Object.keys(monthToNumber);
 
 export default function SubmissionTimeline({ year }: any) {
-  const [view, setView] = useState("both");
+  const [view, setView] = useState("pf");
   const [esiSubmissionData, setEsiSubmissionData] = useState<any[]>([]);
   const [pfSubmissionData, setPfSubmissionData] = useState<any[]>([]);
 
@@ -148,7 +148,7 @@ export default function SubmissionTimeline({ year }: any) {
     <div className="submission-timeline">
       <h2 className="timeline-title">Submission Timeline - {year}</h2>
       <div className="view-button">
-        {["both","pf", "esi"].map((type) => (
+        {["pf", "esi"].map((type) => (
           <button
             key={type}
             onClick={() => setView(type)}
@@ -159,7 +159,7 @@ export default function SubmissionTimeline({ year }: any) {
         ))}
       </div>
 
-      {( view=== "both" || view === "pf") && (
+      {(  view === "pf") && (
         <div>
           <h3 className="section-heading pf">PF Submissions Timeline</h3>
           {pfSubmissionData.length > 0 ? (
@@ -170,7 +170,7 @@ export default function SubmissionTimeline({ year }: any) {
         </div>
       )}
 
-      {( view === "both" || view === "esi") && (
+      {(  view === "esi") && (
         <div>
           <h3 className="section-heading esi">ESI Submissions Timeline</h3>
           {esiSubmissionData.length > 0 ? (

@@ -105,7 +105,7 @@ const EsiUpload: React.FC = () => {
     setProcessing(true);
     setError("");
     setResult(null);
-    toast.info("Processing ESI files...", { autoClose: false });
+    toast.info("Processing ESI files...", { autoClose: 1000 });
 
     try {
       // Convert from YYYY-MM format to MM-YYYY format
@@ -169,7 +169,7 @@ const EsiUpload: React.FC = () => {
     <>
       <ToastContainer
         position="top-right"
-        autoClose={5000}
+        autoClose={3000}
         hideProgressBar={false}
         newestOnTop={false}
         closeOnClick
@@ -182,7 +182,7 @@ const EsiUpload: React.FC = () => {
       <div className="esi-upload-container">
         <h1>Upload ESI Remittance</h1>
 
-        <form onSubmit={handleSubmit} className="esi-upload-form">
+        <form onSubmit={handleSubmit} noValidate className="esi-upload-form">
           <div className="form-group">
             <label htmlFor="uploadMonth">
               Upload Month
@@ -216,14 +216,12 @@ const EsiUpload: React.FC = () => {
               onDrop={handleDrop}
             >
               <div className="drop-zone-content">
-                <p>Drag and drop your ESI folder here</p>
-                <p>or</p>
                 <label htmlFor="fileInput" className="browse-button">
                   Browse Files
                   <input
                     id="fileInput"
                     type="file"
-                    // @ts-ignore - webkitdirectory is not in the standard yet
+                    //@ts-ignore - webkitdirectory is not in the standard yet
                     webkitdirectory="true"
                     directory="true"
                     mozdirectory="true"
