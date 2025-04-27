@@ -25,6 +25,36 @@ const monthToNumber: Record<string, number> = {
   November: 11,
   December: 12,
 };
+const data = {
+  "esi": [
+    {"month": "January", "day": "15"},
+    {"month": "February", "day": "12"},
+    {"month": "March", "day": "10"},
+    {"month": "April", "day": "18"},
+    {"month": "May", "day": "22"},
+    {"month": "June", "day": "14"},
+    {"month": "July", "day": "17"},
+    {"month": "August", "day": "19"},
+    {"month": "September", "day": "13"},
+    {"month": "October", "day": "16"},
+    {"month": "November", "day": "20"},
+    {"month": "December", "day": "15"}
+  ],
+  "pf": [
+    {"month": "January", "day": "20"},
+    {"month": "February", "day": "18"},
+    {"month": "March", "day": "15"},
+    {"month": "April", "day": "22"},
+    {"month": "May", "day": "25"},
+    {"month": "June", "day": "18"},
+    {"month": "July", "day": "20"},
+    {"month": "August", "day": "22"},
+    {"month": "September", "day": "17"},
+    {"month": "October", "day": "19"},
+    {"month": "November", "day": "24"},
+    {"month": "December", "day": "20"}
+  ]
+}
 
 const allMonthsList = Object.keys(monthToNumber);
 
@@ -41,7 +71,7 @@ export default function SubmissionTimeline({ year }: any) {
         },
       })
       .then((res) => {
-        const { esi, pf } = res.data;
+        //const { esi, pf } = res.data;
 
         const mapData = (data: any[]) =>
           data.map((item) => ({
@@ -52,8 +82,8 @@ export default function SubmissionTimeline({ year }: any) {
           }))
           .sort((a, b) => a.x - b.x || a.y - b.y);
 
-        setEsiSubmissionData(mapData(esi));
-        setPfSubmissionData(mapData(pf));
+        setEsiSubmissionData(mapData(data.esi));
+        setPfSubmissionData(mapData(data.pf));
       })
       .catch((err) => console.error("Error fetching submission data:", err));
   }, [year]);
@@ -118,7 +148,7 @@ export default function SubmissionTimeline({ year }: any) {
     <div className="submission-timeline">
       <h2 className="timeline-title">Submission Timeline - {year}</h2>
       <div className="view-button">
-        {["pf", "esi"].map((type) => (
+        {["both","pf", "esi"].map((type) => (
           <button
             key={type}
             onClick={() => setView(type)}
@@ -129,7 +159,7 @@ export default function SubmissionTimeline({ year }: any) {
         ))}
       </div>
 
-      {( view === "pf") && (
+      {( view=== "both" || view === "pf") && (
         <div>
           <h3 className="section-heading pf">PF Submissions Timeline</h3>
           {pfSubmissionData.length > 0 ? (
@@ -140,7 +170,7 @@ export default function SubmissionTimeline({ year }: any) {
         </div>
       )}
 
-      {( view === "esi") && (
+      {( view === "both" || view === "esi") && (
         <div>
           <h3 className="section-heading esi">ESI Submissions Timeline</h3>
           {esiSubmissionData.length > 0 ? (

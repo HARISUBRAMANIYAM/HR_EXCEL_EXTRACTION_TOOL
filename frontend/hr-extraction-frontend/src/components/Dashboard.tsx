@@ -15,6 +15,108 @@ import {
 import api from "../services/api";
 import SubmissionTimeline from "./SubmissionTimeline";
 
+
+
+const DUMMY_DATA = {
+  monthly_amounts: {
+    labels: [
+      "January", "February", "March", "April", "May", "June", 
+      "July", "August", "September", "October", "November", "December"
+    ],
+    datasets: {
+      PF: [158000, 165000, 190000, 172000, 180000, 210000, 186000, 195000, 220000, 205000, 215000, 245000],
+      ESI: [78000, 82000, 94000, 85000, 89000, 105000, 92000, 97000, 110000, 102000, 108000, 122000]
+    }
+  },
+  pf_submissions: {
+    labels: [
+      "January", "February", "March", "April", "May", "June", 
+      "July", "August", "September", "October", "November", "December"
+    ],
+    points: [
+      [{ x: 1, y: 12, r: 5 }],
+      [{ x: 2, y: 8, r: 5 }],
+      [{ x: 3, y: 17, r: 5 }],
+      [{ x: 4, y: 10, r: 5 }],
+      [{ x: 5, y: 9, r: 5 }],
+      [{ x: 6, y: 14, r: 5 }],
+      [{ x: 7, y: 12, r: 5 }],
+      [{ x: 8, y: 8, r: 5 }],
+      [{ x: 9, y: 18, r: 5 }],
+      [{ x: 10, y: 11, r: 5 }],
+      [{ x: 11, y: 9, r: 5 }],
+      [{ x: 12, y: 14, r: 5 }]
+    ]
+  },
+  esi_submissions: {
+    labels: [
+      "January", "February", "March", "April", "May", "June", 
+      "July", "August", "September", "October", "November", "December"
+    ],
+    points: [
+      [{ x: 1, y: 10, r: 5 }],
+      [{ x: 2, y: 7, r: 5 }],
+      [{ x: 3, y: 15, r: 5 }],
+      [{ x: 4, y: 8, r: 5 }],
+      [{ x: 5, y: 9, r: 5 }],
+      [{ x: 6, y: 14, r: 5 }],
+      [{ x: 7, y: 11, r: 5 }],
+      [{ x: 8, y: 8, r: 5 }],
+      [{ x: 9, y: 16, r: 5 }],
+      [{ x: 10, y: 12, r: 5 }],
+      [{ x: 11, y: 8, r: 5 }],
+      [{ x: 12, y: 13, r: 5 }]
+    ]
+  },
+  delayed_submissions: {
+    labels: [
+      "January", "February", "March", "April", "May", "June", 
+      "July", "August", "September", "October", "November", "December"
+    ],
+    datasets: {
+      PF: [
+        [],
+        [],
+        [{ delay_days: 2, amount: 190000 }],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [{ delay_days: 3, amount: 220000 }],
+        [],
+        [],
+        []
+      ],
+      ESI: [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [{ delay_days: 1, amount: 110000 }],
+        [],
+        [],
+        []
+      ]
+    }
+  },
+  summary_stats: {
+    total_pf: 2341000,
+    total_esi: 1164000,
+    pf_submissions: 12,
+    esi_submissions: 12,
+    on_time_rate: 0.833,
+    avg_pf: 195083,
+    avg_esi: 97000
+  },
+  year: 2025
+};
+
+
 interface SubmissionPoint {
   x: number;
   y: number;
@@ -99,7 +201,7 @@ export default function RemittanceDashboard() {
           },
         };
 
-        setData(processedData);
+        setData(DUMMY_DATA);
         setError(null);
       } catch (err: any) {
         setError(err.message);
@@ -110,7 +212,6 @@ export default function RemittanceDashboard() {
 
     fetchData();
   }, [selectedYear]);
-
   if (loading) {
     return (
       <div className="loading-container">
@@ -386,7 +487,7 @@ export default function RemittanceDashboard() {
 
         {activeTab === "submissions" && (
           <div className="panel">
-            <SubmissionTimeline year={data.year} />
+            <SubmissionTimeline year={data.year}/>
           </div>
         )}
 
