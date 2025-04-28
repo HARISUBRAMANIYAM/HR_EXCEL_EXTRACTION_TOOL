@@ -93,3 +93,9 @@ def create_refresh_token(user:UserModel):
     to_encode = {"sub":user.username,"exp":expire,"type":"refresh"}
     encoded_jwt = jwt.encode(to_encode,SECRET_KEY,algorithm=ALGORITHM)
     return encoded_jwt
+
+def sanitize_folder_name(foldername):
+        normalize_path = os.path.normpath(foldername)
+        _,path_without_drive = os.path.splitdrive(normalize_path)
+        folder = path_without_drive.strip(os.sep).replace(os.sep,"_")
+        return folder
