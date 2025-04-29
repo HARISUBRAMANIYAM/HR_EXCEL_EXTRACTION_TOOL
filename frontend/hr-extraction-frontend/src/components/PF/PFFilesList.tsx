@@ -425,8 +425,8 @@ const PFFilesList: React.FC = () => {
                   position: "absolute",
                   left: 0,
                   top: 0,
-                  width: "100%",
-                  height: "100%",
+                  width: "50%",
+                  height: "50%",
                   opacity: 0,
                   cursor: "pointer",
                 }}
@@ -438,7 +438,7 @@ const PFFilesList: React.FC = () => {
               className="submit-button"
               onClick={() => handleUploadRemittance(fileId)}
               disabled={!remittanceFile || remittanceAmount === "0"}
-            >
+              style={{top:"20%", width:"100%",height:"20%"}}>
               Submit
             </button>
             <button
@@ -448,7 +448,7 @@ const PFFilesList: React.FC = () => {
                 setRemittanceAmount("");
                 setRemittanceFile(null);
               }}
-            >
+            style={{top:"20%",width:"100%", height:"20%"}}>
               Cancel
             </button>
           </div>

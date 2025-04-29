@@ -4,6 +4,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -26,35 +27,35 @@ const monthToNumber: Record<string, number> = {
   December: 12,
 };
 const data = {
-  "esi": [
-    {"month": "January", "day": "15"},
-    {"month": "February", "day": "12"},
-    {"month": "March", "day": "10"},
-    {"month": "April", "day": "18"},
-    {"month": "May", "day": "22"},
-    {"month": "June", "day": "14"},
-    {"month": "July", "day": "17"},
-    {"month": "August", "day": "19"},
-    {"month": "September", "day": "13"},
-    {"month": "October", "day": "16"},
-    {"month": "November", "day": "20"},
-    {"month": "December", "day": "15"}
+  esi: [
+    { month: "January", day: "15" },
+    { month: "February", day: "12" },
+    { month: "March", day: "10" },
+    { month: "April", day: "18" },
+    { month: "May", day: "22" },
+    { month: "June", day: "14" },
+    { month: "July", day: "17" },
+    { month: "August", day: "19" },
+    { month: "September", day: "13" },
+    { month: "October", day: "16" },
+    { month: "November", day: "20" },
+    { month: "December", day: "15" },
   ],
-  "pf": [
-    {"month": "January", "day": "20"},
-    {"month": "February", "day": "18"},
-    {"month": "March", "day": "15"},
-    {"month": "April", "day": "22"},
-    {"month": "May", "day": "25"},
-    {"month": "June", "day": "18"},
-    {"month": "July", "day": "20"},
-    {"month": "August", "day": "22"},
-    {"month": "September", "day": "17"},
-    {"month": "October", "day": "19"},
-    {"month": "November", "day": "24"},
-    {"month": "December", "day": "20"}
-  ]
-}
+  pf: [
+    { month: "January", day: "20" },
+    { month: "February", day: "18" },
+    { month: "March", day: "15" },
+    { month: "April", day: "22" },
+    { month: "May", day: "25" },
+    { month: "June", day: "18" },
+    { month: "July", day: "20" },
+    { month: "August", day: "22" },
+    { month: "September", day: "17" },
+    { month: "October", day: "19" },
+    { month: "November", day: "24" },
+    { month: "December", day: "20" },
+  ],
+};
 
 const allMonthsList = Object.keys(monthToNumber);
 
@@ -74,13 +75,14 @@ export default function SubmissionTimeline({ year }: any) {
         //const { esi, pf } = res.data;
 
         const mapData = (data: any[]) =>
-          data.map((item) => ({
-            x: monthToNumber[item.month],
-            y: parseInt(item.day),
-            month: item.month,
-            day: item.day,
-          }))
-          .sort((a, b) => a.x - b.x || a.y - b.y);
+          data
+            .map((item) => ({
+              x: monthToNumber[item.month],
+              y: parseInt(item.day),
+              month: item.month,
+              day: item.day,
+            }))
+            .sort((a, b) => a.x - b.x || a.y - b.y);
 
         setEsiSubmissionData(mapData(data.esi));
         setPfSubmissionData(mapData(data.pf));
@@ -110,8 +112,9 @@ export default function SubmissionTimeline({ year }: any) {
         <YAxis
           type="number"
           dataKey="y"
-          domain={[1, 31]}
-          ticks={Array.from({ length: 31 }, (_, i) => i + 1)} // Show all dates from 1-31
+          domain={[31, 1]}
+          reversed={true}
+          ticks={Array.from({ length: 31 }, (_, i) => 31- i)} // Show all dates from 1-31
           label={{
             value: "Date",
             angle: -90,
@@ -130,6 +133,18 @@ export default function SubmissionTimeline({ year }: any) {
           }}
         />
         <Legend />
+        <ReferenceLine 
+          y={15} 
+          stroke="red" 
+          strokeWidth={2}
+          strokeDasharray="5 5" // Optional: makes the line dashed
+          label={{
+            value: 'Deadline on 15th', 
+            position: 'right', 
+            fill: 'red',
+            fontSize: 12
+          }}
+        />
         <Line
           name={label}
           data={data}
@@ -138,7 +153,7 @@ export default function SubmissionTimeline({ year }: any) {
           stroke={color}
           dot={{ fill: color, r: 5 }}
           connectNulls
-          isAnimationActive={false}
+          isAnimationActive={true}
         />
       </LineChart>
     </ResponsiveContainer>
@@ -159,7 +174,7 @@ export default function SubmissionTimeline({ year }: any) {
         ))}
       </div>
 
-      {(  view === "pf") && (
+      {view === "pf" && (
         <div>
           <h3 className="section-heading pf">PF Submissions Timeline</h3>
           {pfSubmissionData.length > 0 ? (
@@ -170,7 +185,7 @@ export default function SubmissionTimeline({ year }: any) {
         </div>
       )}
 
-      {(  view === "esi") && (
+      {view === "esi" && (
         <div>
           <h3 className="section-heading esi">ESI Submissions Timeline</h3>
           {esiSubmissionData.length > 0 ? (

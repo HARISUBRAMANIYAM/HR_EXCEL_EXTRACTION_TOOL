@@ -472,12 +472,14 @@ export default function RemittanceDashboard() {
                     name="PF"
                     fill="#8884d8"
                     radius={[4, 4, 0, 0]}
+                    isAnimationActive={true}
                   />
                   <Bar
                     dataKey="ESI"
                     name="ESI"
                     fill="#82ca9d"
                     radius={[4, 4, 0, 0]}
+                    isAnimationActive={true}
                   />
                 </BarChart>
               </ResponsiveContainer>
