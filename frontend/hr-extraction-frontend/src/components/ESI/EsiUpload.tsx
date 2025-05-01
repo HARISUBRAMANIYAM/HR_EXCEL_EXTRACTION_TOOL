@@ -252,7 +252,7 @@ const EsiUpload: React.FC = () => {
                 Processing...
               </>
             ) : (
-              "Process ESI Files"
+              "Process ESI Remittance"
             )}
           </button>
         </form>

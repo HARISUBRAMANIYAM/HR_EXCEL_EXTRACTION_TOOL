@@ -254,7 +254,7 @@ const PFUpload: React.FC = () => {
                 Processing...
               </>
             ) : (
-              "Process PF Files"
+              "Process PF Remittance"
             )}
           </button>
         </form>

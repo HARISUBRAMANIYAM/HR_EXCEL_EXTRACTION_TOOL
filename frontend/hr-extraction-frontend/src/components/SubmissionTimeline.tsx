@@ -66,13 +66,13 @@ export default function SubmissionTimeline({ year }: any) {
 
   useEffect(() => {
     api
-      .get("/uploads/by-year-days/", {
+      .get("/uploads/by-year-days_new/", {
         params: {
           year: Number(year),
         },
       })
       .then((res) => {
-        //const { esi, pf } = res.data;
+        const { esi, pf } = res.data;
 
         const mapData = (data: any[]) =>
           data
@@ -84,8 +84,8 @@ export default function SubmissionTimeline({ year }: any) {
             }))
             .sort((a, b) => a.x - b.x || a.y - b.y);
 
-        setEsiSubmissionData(mapData(data.esi));
-        setPfSubmissionData(mapData(data.pf));
+        setEsiSubmissionData(mapData(esi));
+        setPfSubmissionData(mapData(pf));
       })
       .catch((err) => console.error("Error fetching submission data:", err));
   }, [year]);
@@ -114,7 +114,7 @@ export default function SubmissionTimeline({ year }: any) {
           dataKey="y"
           domain={[31, 1]}
           reversed={true}
-          ticks={Array.from({ length: 31 }, (_, i) => 31- i)} // Show all dates from 1-31
+          ticks={Array.from({ length: 31 }, (_, i) => 31 - i)} // Show all dates from 1-31
           label={{
             value: "Date",
             angle: -90,
@@ -133,16 +133,16 @@ export default function SubmissionTimeline({ year }: any) {
           }}
         />
         <Legend />
-        <ReferenceLine 
-          y={15} 
-          stroke="red" 
+        <ReferenceLine
+          y={15}
+          stroke="red"
           strokeWidth={2}
           strokeDasharray="5 5" // Optional: makes the line dashed
           label={{
-            value: 'Deadline on 15th', 
-            position: 'right', 
-            fill: 'red',
-            fontSize: 12
+            value: "Deadline on 15th",
+            position: "right",
+            fill: "red",
+            fontSize: 12,
           }}
         />
         <Line

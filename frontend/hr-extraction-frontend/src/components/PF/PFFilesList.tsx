@@ -413,7 +413,7 @@ const PFFilesList: React.FC = () => {
                   display: "inline-block",
                 }}
               >
-                Upload Remittance
+                Upload Challan
               </label>
               <input
                 id="remittance-upload"
@@ -438,7 +438,8 @@ const PFFilesList: React.FC = () => {
               className="submit-button"
               onClick={() => handleUploadRemittance(fileId)}
               disabled={!remittanceFile || remittanceAmount === "0"}
-              style={{top:"20%", width:"100%",height:"20%"}}>
+              style={{ top: "20%", width: "100%", height: "20%" }}
+            >
               Submit
             </button>
             <button
@@ -448,7 +449,8 @@ const PFFilesList: React.FC = () => {
                 setRemittanceAmount("");
                 setRemittanceFile(null);
               }}
-            style={{top:"20%",width:"100%", height:"20%"}}>
+              style={{ top: "20%", width: "100%", height: "20%" }}
+            >
               Cancel
             </button>
           </div>
@@ -653,7 +655,7 @@ const PFFilesList: React.FC = () => {
                           className="upload-button"
                           onClick={() => setUploadingRemittance(file.id)}
                         >
-                          Upload Remittance
+                          Upload Challan
                         </button>
                       )
                     ) : (

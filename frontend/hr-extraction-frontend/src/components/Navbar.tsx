@@ -24,11 +24,11 @@ const Navbar: React.FC = () => {
           <Link to="/dashboard" className="navbar-item">
             Dashboard
           </Link>
-          <Link to="/pf-files" className="navbar-item">
-            PF Remittance
-          </Link>
           <Link to="/pf-upload" className="navbar-item">
             PF Upload
+          </Link>
+          <Link to="/pf-files" className="navbar-item">
+            PF Remittance
           </Link>
           <Link to="/esi-upload" className="navbar-item">
             ESI Upload
@@ -54,8 +54,8 @@ const Navbar: React.FC = () => {
             <Link to="/login" className="login-button">
               Login
             </Link>
-            <Link to="/change_pass" className="login-button"
-            >Change Password
+            <Link to="/change_pass" className="login-button">
+              Change Password
             </Link>
           </>
         )}

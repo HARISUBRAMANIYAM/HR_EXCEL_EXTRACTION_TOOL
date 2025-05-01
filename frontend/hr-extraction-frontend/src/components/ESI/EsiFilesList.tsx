@@ -413,7 +413,7 @@ const ESIFilesList: React.FC = () => {
                   display: "inline-block",
                 }}
               >
-                Upload Remittance
+                Upload Challan
               </label>
               <input
                 type="file"
@@ -652,7 +652,7 @@ const ESIFilesList: React.FC = () => {
                           className="upload-button"
                           onClick={() => setUploadingRemittance(file.id)}
                         >
-                          Upload Remittance
+                          Upload Challan
                         </button>
                       )
                     ) : (
