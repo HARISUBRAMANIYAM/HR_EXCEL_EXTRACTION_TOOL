@@ -13,6 +13,7 @@ from fastapi import (
     Query,
     logger,
 )
+from dateutil.relativedelta import relativedelta
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, validator
@@ -2506,43 +2507,36 @@ def format_submission_timeline_data(results):
 def format_delayed_data(pf_results, esi_results):
     """Structure delayed submissions data"""
     month_labels = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
     ]
 
     pf_data = [[] for _ in range(12)]
     esi_data = [[] for _ in range(12)]
 
     for result in pf_results:
-        if result.month and result.month.isdigit() and 1 <= int(result.month) <= 12:
-            pf_data[int(result.month) - 1].append(
-                {
-                    "delay_days": int(result.delay_days or 0),
-                    "amount": float(result.amount or 0),
-                }
-            )
+        month = result.get("month")
+        if month and month.isdigit() and 1 <= int(month) <= 12:
+            pf_data[int(month) - 1].append({
+                "delay_days": int(result.get("delay_days", 0)),
+                "amount": float(result.get("amount", 0))
+            })
 
     for result in esi_results:
-        if result.month and result.month.isdigit() and 1 <= int(result.month) <= 12:
-            esi_data[int(result.month) - 1].append(
-                {
-                    "delay_days": int(result.delay_days or 0),
-                    "amount": float(result.amount or 0),
-                }
-            )
+        month = result.get("month")
+        if month and month.isdigit() and 1 <= int(month) <= 12:
+            esi_data[int(month) - 1].append({
+                "delay_days": int(result.get("delay_days", 0)),
+                "amount": float(result.get("amount", 0))
+            })
 
-    return {"labels": month_labels, "datasets": {"PF": pf_data, "ESI": esi_data}}
-
+    return {
+        "labels": month_labels,
+        "datasets": {
+            "PF": pf_data,
+            "ESI": esi_data
+        }
+    }
 
 # =============================================================================
 # Query Helper Functions
@@ -2622,7 +2616,7 @@ async def get_submission_timeline_data(db, model, current_year, current_user):
     return format_submission_timeline_data(results)
 
 
-async def get_delayed_submissions(db, current_year, current_user):
+'''async def get_delayed_submissions(db, current_year, current_user):
     """Get delayed submission data with SQLite-compatible date calculations"""
     # SQLite-compatible due date calculation (15th of next month)
     due_date_expr = func.date(
@@ -2685,6 +2679,70 @@ async def get_delayed_submissions(db, current_year, current_user):
 
     esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
     esi_results = esi_query.all()
+
+    return format_delayed_data(pf_results, esi_results)'''
+def parse_remittance_date(date_str):
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except Exception:
+        return None
+
+def calculate_due_date(month_str):
+    try:
+        # Month format assumed: "MMYYYY"
+        rem_month = datetime.strptime(month_str, "%m%Y")
+        due_date = rem_month.replace(day=15) + relativedelta(months=1)
+        return due_date
+    except Exception:
+        return None
+
+async def get_delayed_submissions(db, current_year, current_user):
+    pf_query = db.query(
+        ProcessedFilePF.remittance_month,
+        ProcessedFilePF.remittance_date,
+        ProcessedFilePF.remittance_amount
+    ).filter(
+        ProcessedFilePF.remittance_submitted.is_(True),
+        ProcessedFilePF.remittance_date.isnot(None),
+        ProcessedFilePF.remittance_month.like(f"%{current_year}%")
+    )
+    pf_query = apply_user_filter(pf_query, ProcessedFilePF, current_user)
+    pf_raw_results = pf_query.all()
+
+    pf_results = []
+    for result in pf_raw_results:
+        rem_date = parse_remittance_date(result.remittance_date)
+        due_date = calculate_due_date(result.remittance_month)
+        if rem_date and due_date and rem_date > due_date:
+            pf_results.append({
+                "month": result.remittance_month[:2],
+                "delay_days": (rem_date - due_date).days,
+                "amount": result.remittance_amount
+            })
+
+    # Repeat for ESI
+    esi_query = db.query(
+        ProcessedFileESI.remittance_month,
+        ProcessedFileESI.remittance_date,
+        ProcessedFileESI.remittance_amount
+    ).filter(
+        ProcessedFileESI.remittance_submitted.is_(True),
+        ProcessedFileESI.remittance_date.isnot(None),
+        ProcessedFileESI.remittance_month.like(f"%{current_year}%")
+    )
+    esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
+    esi_raw_results = esi_query.all()
+
+    esi_results = []
+    for result in esi_raw_results:
+        rem_date = parse_remittance_date(result.remittance_date)
+        due_date = calculate_due_date(result.remittance_month)
+        if rem_date and due_date and rem_date > due_date:
+            esi_results.append({
+                "month": result.remittance_month[:2],
+                "delay_days": (rem_date - due_date).days,
+                "amount": result.remittance_amount
+            })
 
     return format_delayed_data(pf_results, esi_results)
 
@@ -2784,9 +2842,6 @@ async def get_summary_stats(db, current_year, month, current_user):
 # =============================================================================
 # API Endpoints
 # =============================================================================
-
-
-###########################################################################
 @app.get("/dashboard/monthly_amounts", response_model=MonthlyAmountData)
 async def get_monthly_amounts_endpoint(
     year: int = Query(None, description="Filter by specific year"),
@@ -2873,6 +2928,13 @@ async def get_submissions_data_endpoint(
         year=current_year,
     )
 
+@app.get("/dashboard/year_list",response_model=Years)
+async def get_all_years(current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)):
+    year_set = db.query(ProcessedFilePF.upload_date).all()
+    list_of_years = set(entry[0].year for entry in year_set)
+    return Years(
+        yearlist=list(list_of_years),)
 
 @app.get("/dashboard/remittance_stats_viz", response_model=RemittanceDashboardStats)
 async def get_remittance_dashboard_stats(
@@ -2885,6 +2947,8 @@ async def get_remittance_dashboard_stats(
 ):
     """Enhanced remittance dashboard statistics with proper date handling"""
     current_year = year or datetime.now().year
+    year_set = db.query(ProcessedFilePF.created_at).all()
+    list_of_years = set(entry[0].year for entry in year_set)
 
     # Execute all queries in parallel
     challan_data, pf_submissions, esi_submissions, delayed_data, summary_stats = (
@@ -2927,6 +2991,7 @@ async def get_remittance_dashboard_stats(
         ),
         summary_stats=SummaryStats(**summary_stats),
         year=current_year,
+        yearlist=list(list_of_years),
     )
 
 
@@ -2954,7 +3019,17 @@ async def get_yearly_summary_endpoint(
         year=current_year,
     )
 
-
+@app.get("/dashboard/delayed-submissions",response_model=DelayedChartResponse)
+async def delayed_submissions_chart(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_year = datetime.now().year
+    try:
+        data = await get_delayed_submissions(db, current_year, current_user)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 # Function to create the database tables
 def create_db_tables():
     Base.metadata.create_all(bind=engine)

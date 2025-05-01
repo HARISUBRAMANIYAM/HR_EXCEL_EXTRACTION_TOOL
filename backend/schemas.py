@@ -216,6 +216,7 @@ class RemittanceDashboardStats(BaseModel):
     delayed_submissions: DelayedData
     summary_stats: SummaryStats
     year: int
+    yearlist:List[int]
 
 class SummaryStatsResponse(BaseModel):
     summary_stats: SummaryStats
@@ -228,3 +229,13 @@ class SubmissionsDataResponse(BaseModel):
     delayed_submissions: DelayedData
     year: int
 
+class Years(BaseModel):
+    yearlist:List[int]
+
+class DelayDataPoint(BaseModel):
+    delay_days: int
+    amount: float
+
+class DelayedChartResponse(BaseModel):
+    labels: List[str]
+    datasets: Dict[str, List[List[DelayDataPoint]]]

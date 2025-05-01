@@ -99,3 +99,4 @@ def sanitize_folder_name(foldername):
         _,path_without_drive = os.path.splitdrive(normalize_path)
         folder = path_without_drive.strip(os.sep).replace(os.sep,"_")
         return folder
+        

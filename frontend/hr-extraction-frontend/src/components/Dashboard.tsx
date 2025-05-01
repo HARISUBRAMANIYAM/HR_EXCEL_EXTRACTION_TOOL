@@ -15,12 +15,10 @@
 // import api from "../services/api";
 // import SubmissionTimeline from "./SubmissionTimeline";
 
-
-
 // const DUMMY_DATA = {
 //   monthly_amounts: {
 //     labels: [
-//       "January", "February", "March", "April", "May", "June", 
+//       "January", "February", "March", "April", "May", "June",
 //       "July", "August", "September", "October", "November", "December"
 //     ],
 //     datasets: {
@@ -30,7 +28,7 @@
 //   },
 //   pf_submissions: {
 //     labels: [
-//       "January", "February", "March", "April", "May", "June", 
+//       "January", "February", "March", "April", "May", "June",
 //       "July", "August", "September", "October", "November", "December"
 //     ],
 //     points: [
@@ -50,7 +48,7 @@
 //   },
 //   esi_submissions: {
 //     labels: [
-//       "January", "February", "March", "April", "May", "June", 
+//       "January", "February", "March", "April", "May", "June",
 //       "July", "August", "September", "October", "November", "December"
 //     ],
 //     points: [
@@ -70,7 +68,7 @@
 //   },
 //   delayed_submissions: {
 //     labels: [
-//       "January", "February", "March", "April", "May", "June", 
+//       "January", "February", "March", "April", "May", "June",
 //       "July", "August", "September", "October", "November", "December"
 //     ],
 //     datasets: {
@@ -115,7 +113,6 @@
 //   },
 //   year: 2025
 // };
-
 
 // interface SubmissionPoint {
 //   x: number;
@@ -649,22 +646,20 @@
 //     </div>
 //   );
 // }
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from "react";
 import {
-  BarChart,
   Bar,
-  XAxis,
-  YAxis,
+  BarChart,
   CartesianGrid,
-  Tooltip,
   Legend,
   ResponsiveContainer,
-  ScatterChart,
-  Scatter,
-  Cell
-} from 'recharts';
-import api from '../services/api'; // Assuming this is your API client
-import SubmissionTimeline from './SubmissionTimeline';
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import api from "../services/api"; // Assuming this is your API client
+import DelayedSubmissionsChart from "./DelayedSubmissionsChart";
+import SubmissionTimeline from "./SubmissionTimeline";
 // Interfaces
 interface SubmissionPoint {
   x: number;
@@ -734,44 +729,59 @@ interface SubmissionsDataResponse {
 interface SubmissionTimelineProps {
   year: number;
 }
-
-
+interface yearlistResponse {
+  yearlist: number[];
+}
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8"];
 
 export default function RemittanceDashboard() {
   // State management
-  const [monthlyAmountData, setMonthlyAmountData] = useState<MonthlyAmountData | null>(null);
-  const [submissionsData, setSubmissionsData] = useState<SubmissionsDataResponse | null>(null);
-  const [summaryStats, setSummaryStats] = useState<SummaryStatsResponse | null>(null);
+  const [monthlyAmountData, setMonthlyAmountData] =
+    useState<MonthlyAmountData | null>(null);
+  const [submissionsData, setSubmissionsData] =
+    useState<SubmissionsDataResponse | null>(null);
+  const [summaryStats, setSummaryStats] = useState<SummaryStatsResponse | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [yearlist, setYearlist] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(-1);
-  const [activeTab, setActiveTab] = useState<"overview" | "submissions" | "delayed">("overview");
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "submissions" | "delayed"
+  >("overview");
 
   // Fetch data from separate endpoints
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        
+
         // Fetch data from all three endpoints in parallel
-        const [yearlySummaryResponse,monthlyAmountsResponse,  submissionsDataResponse] = await Promise.all([
+        const [
+          yearlistResponse,
+          yearlySummaryResponse,
+          monthlyAmountsResponse,
+          submissionsDataResponse,
+        ] = await Promise.all([
+          api.get<yearlistResponse>(`/dashboard/year_list`),
           api.get(`/dashboard/yearly_summary?year=${selectedYear}`),
           api.get(`/dashboard/monthly_amounts?year=${selectedYear}`),
-          api.get(`/dashboard/submissions_data?year=${selectedYear}`)
+          api.get(`/dashboard/submissions_data?year=${selectedYear}`),
         ]);
 
         // Process and set the data
+        setYearlist(yearlistResponse.data.yearlist);
         setSummaryStats(yearlySummaryResponse.data);
         setMonthlyAmountData(monthlyAmountsResponse.data);
-        
+
         setSubmissionsData(submissionsDataResponse.data);
-        
+
         setError(null);
       } catch (err: any) {
-        setError(err.message || 'Failed to fetch dashboard data');
+        setError(err.message || "Failed to fetch dashboard data");
       } finally {
         setLoading(false);
       }
@@ -852,7 +862,9 @@ export default function RemittanceDashboard() {
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
-        <h1 className="dashboard-title">Remittance Dashboard {summaryStats.year}</h1>
+        <h1 className="dashboard-title">
+          Remittance Dashboard {summaryStats.year}
+        </h1>
 
         <div className="filters-container">
           <div className="filter-group">
@@ -863,11 +875,15 @@ export default function RemittanceDashboard() {
               className="filter-select"
               aria-label="year"
             >
-              {[selectedYear - 1, selectedYear, selectedYear + 1, selectedYear + 2].map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
+              {yearlist.length === 0 ? (
+                <option disabled>Loading years...</option>
+              ) : (
+                yearlist.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))
+              )}
             </select>
           </div>
           <div className="filter-group">
@@ -960,7 +976,9 @@ export default function RemittanceDashboard() {
                   <div
                     className="progress-bar"
                     style={{
-                      width: `${summaryStats.summary_stats.on_time_rate * 100}%`,
+                      width: `${
+                        summaryStats.summary_stats.on_time_rate * 100
+                      }%`,
                     }}
                   ></div>
                 </div>
@@ -975,15 +993,19 @@ export default function RemittanceDashboard() {
               <span className="summary-label">Total:</span>
               <span className="summary-value year">
                 {formatCurrency(
-                  parseFloat(String(summaryStats?.summary_stats.total_pf || 0)) +
-                    parseFloat(String(summaryStats?.summary_stats.total_esi || 0))
+                  parseFloat(
+                    String(summaryStats?.summary_stats.total_pf || 0)
+                  ) +
+                    parseFloat(
+                      String(summaryStats?.summary_stats.total_esi || 0)
+                    )
                 )}
               </span>
             </div>
             <div className="summary-item">
               <span className="summary-label">Total Submissions:</span>
               <span className="summary-value year">
-                {(summaryStats?.summary_stats.pf_submissions  || 0)+
+                {(summaryStats?.summary_stats.pf_submissions || 0) +
                   (summaryStats?.summary_stats.esi_submissions || 0)}
               </span>
             </div>
@@ -1069,147 +1091,10 @@ export default function RemittanceDashboard() {
         {activeTab === "delayed" && (
           <div className="panel">
             <h2 className="panel-title">
-              Delayed Submissions - All Months {submissionsData.year}
+              Delayed Submissions for {selectedYear}
             </h2>
-            <div className="delayed-grid">
-              <div className="delayed-card">
-                <h3 className="delayed-title pf">Delayed PF Submissions</h3>
-                {allDelayedData.pf.length > 0 ? (
-                  <div className="delayed-chart">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ScatterChart
-                        margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis
-                          type="number"
-                          dataKey="delay_days"
-                          name="Delay (days)"
-                          label={{
-                            value: "Days Delayed",
-                            position: "insideBottom",
-                            offset: -5,
-                            fill: "#6b7280",
-                          }}
-                          tick={{ fill: "#6b7280" }}
-                        />
-                        <YAxis
-                          type="number"
-                          dataKey="amount"
-                          name="Amount"
-                          tick={{ fill: "#6b7280" }}
-                        />
-                        <Tooltip
-                          formatter={(value, name) => [
-                            name === "Amount"
-                              ? formatCurrency(Number(value))
-                              : value,
-                            name,
-                          ]}
-                          contentStyle={{
-                            backgroundColor: "rgba(255, 255, 255, 0.9)",
-                            border: "1px solid #e5e7eb",
-                            borderRadius: "0.375rem",
-                            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                          }}
-                        />
-                        <Scatter
-                          name="PF Delayed"
-                          data={allDelayedData.pf}
-                          fill="#8884d8"
-                          shape="circle"
-                        >
-                          {allDelayedData.pf.map((entry, index) => (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={COLORS[index % COLORS.length]}
-                            />
-                          ))}
-                        </Scatter>
-                      </ScatterChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="no-data">
-                    <p className="no-data-message">
-                      No delayed PF submissions for {submissionsData.year}
-                    </p>
-                    <p className="no-data-success">
-                      All PF submissions were on time!
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="delayed-card">
-                <h3 className="delayed-title esi">Delayed ESI Submissions</h3>
-                {allDelayedData.esi.length > 0 ? (
-                  <div className="delayed-chart">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ScatterChart
-                        margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis
-                          type="number"
-                          dataKey="delay_days"
-                          name="Delay (days)"
-                          label={{
-                            value: "Days Delayed",
-                            position: "insideBottom",
-                            offset: -5,
-                            fill: "#6b7280",
-                          }}
-                          tick={{ fill: "#6b7280" }}
-                        />
-                        <YAxis
-                          type="number"
-                          dataKey="amount"
-                          name="Amount"
-                          tick={{ fill: "#6b7280" }}
-                        />
-                        <Tooltip
-                          formatter={(value, name) => [
-                            name === "Amount"
-                              ? formatCurrency(Number(value))
-                              : value,
-                            name,
-                          ]}
-                          contentStyle={{
-                            backgroundColor: "rgba(255, 255, 255, 0.9)",
-                            border: "1px solid #e5e7eb",
-                            borderRadius: "0.375rem",
-                            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                          }}
-                        />
-                        <Scatter
-                          name="ESI Delayed"
-                          data={allDelayedData.esi}
-                          fill="#82ca9d"
-                          shape="circle"
-                        >
-                          {allDelayedData.esi.map((entry, index) => (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={COLORS[index % COLORS.length]}
-                            />
-                          ))}
-                        </Scatter>
-                      </ScatterChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="no-data">
-                    <p className="no-data-message">
-                      No delayed ESI submissions for {submissionsData.year}
-                    </p>
-                    <p className="no-data-success">
-                      All ESI submissions were on time!
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
+            {/* Use the new DelayedSubmissionsChart component */}
+            <DelayedSubmissionsChart currentYear={selectedYear} />
           </div>
         )}
       </div>
