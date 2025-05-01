@@ -1,3 +1,4 @@
+from sqlalchemy import *
 import asyncio
 import concurrent
 from fastapi import (
@@ -65,6 +66,8 @@ from utils import *
 import zipfile
 from io import BytesIO
 import math
+from sqlalchemy import func, extract, cast, Date
+import statistics
 
 # Create a FastAPI instance
 app = FastAPI()
@@ -126,11 +129,11 @@ async def login_user(
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    refresh_token= create_refresh_token(user)
+    refresh_token = create_refresh_token(user)
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
     }
 
 
@@ -180,10 +183,12 @@ async def read_users(
     return result
 
 
-@app.post("/refresh_token",response_model= Token)
-async def refresh_token(refresh_data:dict = Body(...), db: Session = Depends(get_db)):
+@app.post("/refresh_token", response_model=Token)
+async def refresh_token(refresh_data: dict = Body(...), db: Session = Depends(get_db)):
     try:
-        payload = jwt.decode(refresh_data['refresh_token'], SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            refresh_data["refresh_token"], SECRET_KEY, algorithms=[ALGORITHM]
+        )
         username = payload.get("sub")
         token_type = payload.get("type")
         if username is None or token_type != "refresh":
@@ -193,22 +198,23 @@ async def refresh_token(refresh_data:dict = Body(...), db: Session = Depends(get
             raise HTTPException(status_code=401, detail="User not Found")
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         new_access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+            data={"sub": user.username}, expires_delta=access_token_expires
         )
         new_refresh_token = create_refresh_token(user)
         return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
-        "token_type": "bearer",
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer",
         }
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+
 @app.post("/logout")
 async def logout(
-    current_user:UserModel = Depends(get_current_user),
-    db:Session = Depends(get_db)
+    current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    return {"message":"Sucessfully logged out"}
+    return {"message": "Sucessfully logged out"}
 
 
 # ********************************************************************************************#
@@ -221,7 +227,7 @@ async def process_folder(
     current_user: UserModel = Depends(require_hr_or_admin),
     upload_month: str = Form(..., description="Month in MM-YYYY format"),
     db: Session = Depends(get_db),
-):  
+):
     fname = sanitize_folder_name(foldername=folder_name)
     try:
         # Parse and validate the month input
@@ -370,10 +376,34 @@ async def process_folder(
             overall_message = "Some files had errors during processing."
 
     # Save combined output only if we have successful processed data
-    if not combined_df.empty:
+    if not combined_df.empty and len(combined_df) > 0:
+        writer = None
         try:
+            writer = pd.ExcelWriter(excel_file_path, engine="openpyxl")
             # Save Excel file
-            combined_df.to_excel(excel_file_path, index=False)
+            combined_df.to_excel(writer, index=False, sheet_name="PF_Data")
+            workbook = writer.book
+            worksheet = writer.sheets["PF_Data"]
+            number_format = "0"
+            numeric_columns = ["C", "D", "E", "F", "G", "H", "I", "J"]
+            for col in numeric_columns:
+                for cell in worksheet[col][1:]:
+                    cell.number_format = number_format
+            worksheet.protection.disable()
+            worksheet.protection.sheet = False
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2) * 1.2
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+            writer.close()
+            writer = None
 
             # Save text file
             output_lines = [
@@ -387,6 +417,22 @@ async def process_folder(
         except Exception as e:
             overall_status = "error"
             overall_message = f"Error saving combined files: {str(e)}"
+            if writer is not None:
+                writer.close()
+            # Clean up files with proper handling
+            try:
+                if excel_file_path.exists():
+                    excel_file_path.unlink()
+            except:
+                pass
+            try:
+                if text_file_path.exists():
+                    text_file_path.unlink()
+            except:
+                pass
+    else:
+        overall_status = "error"
+        overall_message = "No valid data to save after processing"
 
     # Create database record
     db_record = ProcessedFilePF(
@@ -402,6 +448,7 @@ async def process_folder(
     try:
         db.add(db_record)
         db.commit()
+        db.refresh(db_record)
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -420,7 +467,6 @@ async def process_folder(
 
 
 @app.get("/processed_files_pf", response_model=List[ProcessedFileResponse])
-
 async def get_processed_files_pf(
     upload_month: str = Query(..., description="Month in MM-YYYY format"),
     current_user: UserModel = Depends(get_current_user),
@@ -521,133 +567,6 @@ async def get_processed_files_pf(
             user_latest[file.user_id] = file
 
     return [ProcessedFileResponse.from_orm(file) for file in user_latest.values()]
-
-
-# *****************************************************************************************#
-@app.get("/processed_files_pf_new", response_model=List[ProcessedFileResponse])
-async def get_processed_files_pf(
-    upload_month: str = Query(..., description="Month in MM-YYYY format"),
-    current_user: UserModel = Depends(get_current_user),
-    user_id: Optional[int] = Query(
-        None, description="Specific user ID to filter by (Admin only)"
-    ),
-    db: Session = Depends(get_db),
-):
-    try:
-        # Parse the month input
-        month_date = datetime.strptime(upload_month, "%m-%Y").date()
-        first_day_of_month = month_date.replace(day=1)
-        last_day_of_month = (first_day_of_month + timedelta(days=32)).replace(
-            day=1
-        ) - timedelta(days=1)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid month format. Please use MM-YYYY format (e.g., 05-2023)",
-        )
-
-    # Base query for files within the month
-    query = db.query(ProcessedFilePF).filter(
-        ProcessedFilePF.upload_date >= first_day_of_month,
-        ProcessedFilePF.upload_date <= last_day_of_month,
-        ProcessedFilePF.filename.like(f"%{upload_month.replace('-', '_')}%"),
-    )
-
-    # Apply user filtering
-    if current_user.role == Role.ADMIN:
-        if user_id is not None:
-            query = query.filter(ProcessedFilePF.user_id == user_id)
-    else:
-        query = query.filter(ProcessedFilePF.user_id == current_user.id)
-
-    # Get the most recent files based on user role
-    if current_user.role == Role.ADMIN and user_id is None:
-        # For admin viewing all users, get most recent file per user
-        subquery = (
-            db.query(
-                ProcessedFilePF.user_id,
-                func.max(ProcessedFilePF.created_at).label("max_created_at"),
-            )
-            .filter(
-                ProcessedFilePF.upload_date >= first_day_of_month,
-                ProcessedFilePF.upload_date <= last_day_of_month,
-                ProcessedFilePF.filename.like(f"%{upload_month.replace('-', '_')}%"),
-            )
-            .group_by(ProcessedFilePF.user_id)
-            .subquery()
-        )
-
-        query = query.join(
-            subquery,
-            and_(
-                ProcessedFilePF.user_id == subquery.c.user_id,
-                ProcessedFilePF.created_at == subquery.c.max_created_at,
-            ),
-        )
-    else:
-        # For single user, get their most recent file
-        query = query.order_by(ProcessedFilePF.created_at.desc()).limit(1)
-
-    files = query.all()
-
-    # Verify file existence and enrich response with additional data
-    valid_files = []
-    for file in files:
-        if file.status == "success":
-            filepaths = file.filepath.split(",")
-            if len(filepaths) == 2:
-                excel_path = Path(filepaths[0])
-                text_path = Path(filepaths[1])
-
-                if excel_path.exists() and text_path.exists():
-                    # Add additional information from the new fields
-                    file_details = {
-                        "id": file.id,
-                        "filename": file.filename,
-                        "status": file.status,
-                        "message": file.message,
-                        "upload_month": file.upload_month,
-                        "created_at": file.created_at,
-                        "source_folder": file.source_folder,
-                        "processed_files_count": file.processed_files_count,
-                        "success_files_count": file.success_files_count,
-                        "excel_file_url": f"/download/pf/{file.id}/excel",
-                        "text_file_url": f"/download/pf/{file.id}/text",
-                    }
-                    valid_files.append(file_details)
-                else:
-                    # Update DB record if files are missing
-                    file.status = "error"
-                    file.message = "Output files not found on server"
-                    db.add(file)
-            else:
-                file.status = "error"
-                file.message = "Invalid file path format in database"
-                db.add(file)
-        else:
-            # Include failed processing attempts with their error details
-            valid_files.append(
-                {
-                    "id": file.id,
-                    "filename": file.filename,
-                    "status": file.status,
-                    "message": file.message,
-                    "upload_month": file.upload_month,
-                    "created_at": file.created_at,
-                    "source_folder": file.source_folder,
-                    "processed_files_count": file.processed_files_count,
-                    "success_files_count": file.success_files_count,
-                }
-            )
-
-    try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        # Log the error but continue with the response
-        logger.error(f"Error committing database changes: {str(e)}")
-
-    return valid_files
 
 
 # *************************************************************************
@@ -1239,10 +1158,10 @@ async def process_esi_file(
 
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
-
+    allowed_extensions = (".xls", ".xlsx")
     # Filter only Excel files
     excel_files = [
-        file for file in files if file.filename.lower().endswith((".xls", ".xlsx"))
+        file for file in files if file.filename.lower().endswith(allowed_extensions)
     ]
     if not excel_files:
         raise HTTPException(
@@ -1375,10 +1294,35 @@ async def process_esi_file(
             overall_message = "Some files had errors during processing."
 
     # Save combined output only if we have successful processed data
-    if not combined_df.empty:
+    if not combined_df.empty and len(combined_df) > 0:
+        writer = None
         try:
+            writer = pd.ExcelWriter(excel_file_path, engine="openpyxl")
             # Save Excel file
-            combined_df.to_excel(excel_file_path, index=False)
+            combined_df.to_excel(writer, index=False, sheet_name="ESI Data")
+
+            workbook = writer.book
+            worksheet = writer.sheets["ESI Data"]
+            number_format = "0"
+            numeric_columns = ["C", "D"]
+            for col in numeric_columns:
+                for cell in worksheet[col][1:]:
+                    cell.number_format = number_format
+            worksheet.protection.disable()
+            worksheet.protection.sheet = False
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2) * 1.2
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+            writer.close()
+            writer = None
 
             # Save text file
             output_lines = [
@@ -1392,6 +1336,22 @@ async def process_esi_file(
         except Exception as e:
             overall_status = "error"
             overall_message = f"Error saving combined files: {str(e)}"
+            if writer is not None:
+                writer.close()
+            # Clean up files with proper handling
+            try:
+                if excel_file_path.exists():
+                    excel_file_path.unlink()
+            except:
+                pass
+            try:
+                if text_file_path.exists():
+                    text_file_path.unlink()
+            except:
+                pass
+    else:
+        overall_status = "error"
+        overall_message = "No valid data to save after processing"
 
     # Create database record with additional metadata
     db_record = ProcessedFileESI(
@@ -1412,6 +1372,7 @@ async def process_esi_file(
     try:
         db.add(db_record)
         db.commit()
+        db.refresh(db_record)
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -2414,242 +2375,71 @@ async def download_multiple_pf_files(
     )
 
 
-@app.get("/dashboard/remittance_stats_viz", response_model=RemittanceDashboardStats)
-async def get_remittance_dashboard_stats(
-    year: int = Query(None, description="Filter by specific year"),
-    month: int = Query(
-        None, description="Optional month filter (1-12) for summary cards"
-    ),
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
+@app.get("/uploads/by-year-days_new/")
+def get_avg_remittance_day_by_year(
+    year: int = Query(..., description="Year to filter remittance dates")
 ):
-    """Enhanced remittance dashboard statistics with improved data structure"""
-    current_year = year or datetime.now().year
-
-    def apply_user_filter(query, model):
-        """Apply user-based filtering to queries"""
-        if current_user.role not in [Role.ADMIN]:
-            return query.filter(model.user_id == current_user.id)
-        return query
-
-    # Get all data in parallel for better performance
-    results = await asyncio.gather(
-        get_monthly_amounts(db, current_year, apply_user_filter),
-        get_submission_timeline_data(
-            db, current_year, apply_user_filter, ProcessedFilePF
-        ),
-        get_submission_timeline_data(
-            db, current_year, apply_user_filter, ProcessedFileESI
-        ),
-        get_delayed_submissions(db, current_year, apply_user_filter),
-        get_summary_stats(db, current_year, month, apply_user_filter),
-    )
-
-    challan_data, pf_submissions, esi_submissions, delayed_data, summary_stats = results
-
-    # Create response model
-    stats = RemittanceDashboardStats(
-        monthly_amounts=MonthlyAmountData(
-            labels=challan_data["labels"], datasets=challan_data["datasets"]
-        ),
-        pf_submissions=SubmissionData(
-            labels=pf_submissions["labels"], points=pf_submissions["points"]
-        ),
-        esi_submissions=SubmissionData(
-            labels=esi_submissions["labels"], points=esi_submissions["points"]
-        ),
-        delayed_submissions=DelayedData(
-            labels=delayed_data["labels"],
-            datasets={
-                "PF": [
-                    [DelayedSubmission(**sub) for sub in month_subs]
-                    for month_subs in delayed_data["datasets"]["PF"]
-                ],
-                "ESI": [
-                    [DelayedSubmission(**sub) for sub in month_subs]
-                    for month_subs in delayed_data["datasets"]["ESI"]
-                ],
-            },
-        ),
-        summary_stats=summary_stats,
-        year=current_year,
-    )
-
-    return stats
-
-    return stats
-
-
-async def get_summary_stats(db: Session, year: int, month: Optional[int], filter_fn):
-    """Get summary statistics for the dashboard with optional month filter"""
-    base_filters = [
-        extract("year", ProcessedFilePF.remittance_month) == year,
-        ProcessedFilePF.remittance_submitted == True,
-    ]
-
-    if month:
-        base_filters.append(extract("month", ProcessedFilePF.remittance_month) == month)
-
-    # Total PF Amount
-    pf_query = db.query(
-        func.sum(ProcessedFilePF.remittance_amount).label("total_amount"),
-        func.count(ProcessedFilePF.id).label("count"),
-        func.avg(ProcessedFilePF.remittance_amount).label("avg_amount"),
-    ).filter(*base_filters)
-
-    pf_query = filter_fn(pf_query, ProcessedFilePF)
-    pf_result = pf_query.first()
-
-    # Total ESI Amount
-    esi_base_filters = [
-        extract("year", ProcessedFileESI.remittance_month) == year,
-        ProcessedFileESI.remittance_submitted == True,
-    ]
-
-    if month:
-        esi_base_filters.append(
-            extract("month", ProcessedFileESI.remittance_month) == month
-        )
-
-    esi_query = db.query(
-        func.sum(ProcessedFileESI.remittance_amount).label("total_amount"),
-        func.count(ProcessedFileESI.id).label("count"),
-        func.avg(ProcessedFileESI.remittance_amount).label("avg_amount"),
-    ).filter(*esi_base_filters)
-
-    esi_query = filter_fn(esi_query, ProcessedFileESI)
-    esi_result = esi_query.first()
-
-    # On-time submissions (submitted by 15th of next month)
-    on_time_filters = [
-        ProcessedFilePF.remittance_submitted == True,
-        extract("year", ProcessedFilePF.remittance_month) == year,
-        ProcessedFilePF.remittance_date
-        <= func.date(
-            ProcessedFilePF.remittance_month + text("'-01'"), "+1 month", "-16 days"
-        ),
-    ]
-
-    if month:
-        on_time_filters.append(
-            extract("month", ProcessedFilePF.remittance_month) == month
-        )
-
-    on_time_pf = db.query(func.count(ProcessedFilePF.id)).filter(*on_time_filters)
-    on_time_pf = filter_fn(on_time_pf, ProcessedFilePF)
-    on_time_pf_count = on_time_pf.scalar() or 0
-
-    total_pf_submissions = pf_result.count if pf_result else 0
-    on_time_rate = (
-        on_time_pf_count / total_pf_submissions if total_pf_submissions > 0 else 0
-    )
-
-    return {
-        "total_pf": str(pf_result.total_amount) if pf_result else "0",
-        "total_esi": str(esi_result.total_amount) if esi_result else "0",
-        "pf_submissions": total_pf_submissions,
-        "esi_submissions": esi_result.count if esi_result else 0,
-        "on_time_rate": on_time_rate,
-        "avg_pf": (
-            str(pf_result.avg_amount) if pf_result and pf_result.avg_amount else "0"
-        ),
-        "avg_esi": (
-            str(esi_result.avg_amount) if esi_result and esi_result.avg_amount else "0"
-        ),
-    }
-
-
-async def get_submission_timeline_data(db: Session, year: int, filter_fn, model):
-    """Get submission timeline data for scatter plot (either PF or ESI)"""
-    # Query for submission dates and amounts
-    query = db.query(
-        extract("month", model.remittance_month).label("month"),
-        extract("day", model.remittance_date).label("day"),
-        model.remittance_amount.label("amount"),
-    ).filter(
-        model.remittance_submitted == True,
-        model.remittance_date.isnot(None),
-        model.remittance_amount.isnot(None),
-        extract("year", model.remittance_month) == year,
-    )
-
-    query = filter_fn(query, model)
-    results = query.all()
-
-    return format_submission_timeline_data(results)
-
-
-def format_submission_timeline_data(results):
-    """Structure submission timeline data for visualization"""
-    month_labels = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
-
-    # Initialize data structure - one array per month for points
-    points = [[] for _ in range(12)]
-
-    for result in results:
-        month = result.month - 1  # Convert to 0-based index
-        day = result.day
-        amount = result.amount
-
-        # Validate data before adding
-        if 0 <= month < 12 and day and amount:
-            points[month].append(
-                {"x": int(day), "y": float(amount), "r": 5}  # Radius for the point
+    session = SessionLocal()
+    try:
+        # Fetch all non-null remittance dates for PF
+        pf_rows = (
+            session.query(
+                ProcessedFilePF.remittance_month, ProcessedFilePF.remittance_date
             )
-
-    return {"labels": month_labels, "points": points}
-
-
-async def get_monthly_amounts(db: Session, year: int, filter_fn):
-    """Get aggregated monthly remittance amounts for both PF and ESI"""
-    # PF amounts
-    pf_query = db.query(
-        extract("month", ProcessedFilePF.remittance_month).label("month"),
-        func.sum(ProcessedFilePF.remittance_amount).label("total_amount"),
-    ).filter(
-        ProcessedFilePF.remittance_submitted == True,
-        ProcessedFilePF.remittance_amount.isnot(None),
-    )
-
-    if year:
-        pf_query = pf_query.filter(
-            extract("year", ProcessedFilePF.remittance_month) == year
+            .filter(ProcessedFilePF.remittance_date != None)
+            .all()
         )
 
-    pf_query = filter_fn(pf_query, ProcessedFilePF)
-    pf_results = pf_query.group_by("month").all()
-
-    # ESI amounts
-    esi_query = db.query(
-        extract("month", ProcessedFileESI.remittance_month).label("month"),
-        func.sum(ProcessedFileESI.remittance_amount).label("total_amount"),
-    ).filter(
-        ProcessedFileESI.remittance_submitted == True,
-        ProcessedFileESI.remittance_amount.isnot(None),
-    )
-
-    if year:
-        esi_query = esi_query.filter(
-            extract("year", ProcessedFileESI.remittance_month) == year
+        # Fetch all non-null remittance dates for ESI
+        esi_rows = (
+            session.query(
+                ProcessedFileESI.remittance_month, ProcessedFileESI.remittance_date
+            )
+            .filter(ProcessedFileESI.remittance_date != None)
+            .all()
         )
 
-    esi_query = filter_fn(esi_query, ProcessedFileESI)
-    esi_results = esi_query.group_by("month").all()
+        def calculate_avg_day(rows):
+            month_days = defaultdict(list)
+            for month, date_str in rows:
+                try:
+                    date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+                    if date_obj.year == year:
+                        month_days[month].append(date_obj.day)
+                except Exception as e:
+                    print(f"Error parsing date {date_str}: {e}")
+            return [
+                {
+                    "month": datetime.strptime(month, "%m-%Y").strftime("%B"),
+                    "day": round(statistics.mean(days)),
+                }
+                for month, days in month_days.items()
+            ]
 
-    return format_monthly_amounts(pf_results, esi_results)
+        return {"pf": calculate_avg_day(pf_rows), "esi": calculate_avg_day(esi_rows)}
+
+    finally:
+        session.close()
+
+
+# ***************************************************************************#
+def parse_remittance_month(remittance_month: str) -> tuple:
+    """Parse MM-YYYY format into (month, year)"""
+    if not remittance_month or "-" not in remittance_month:
+        return (None, None)
+    month, year = remittance_month.split("-")
+    return (int(month), int(year))
+
+
+def get_current_user():
+    """Get current authenticated user - Mock implementation"""
+    # Mock implementation - replace with your actual auth logic
+    return UserModel(id=1, role=Role.ADMIN)
+
+
+# =============================================================================
+# Data Formatting Functions
+# =============================================================================
 
 
 def format_monthly_amounts(pf_results, esi_results):
@@ -2673,71 +2463,44 @@ def format_monthly_amounts(pf_results, esi_results):
     esi_data = [0.0] * 12
 
     for result in pf_results:
-        if 1 <= result.month <= 12:
-            pf_data[result.month - 1] = float(result.total_amount or 0)
+        if result.month and result.month.isdigit() and 1 <= int(result.month) <= 12:
+            pf_data[int(result.month) - 1] = float(result.total_amount or 0)
 
     for result in esi_results:
-        if 1 <= result.month <= 12:
-            esi_data[result.month - 1] = float(result.total_amount or 0)
+        if result.month and result.month.isdigit() and 1 <= int(result.month) <= 12:
+            esi_data[int(result.month) - 1] = float(result.total_amount or 0)
 
     return {"labels": month_labels, "datasets": {"PF": pf_data, "ESI": esi_data}}
 
 
-async def get_delayed_submissions(db: Session, year: int, filter_fn):
-    """Get data about delayed submissions"""
-    # Calculate expected due date (15th of next month)
-    # and compare with actual submission date
+def format_submission_timeline_data(results):
+    """Structure submission timeline data for visualization"""
+    month_labels = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ]
 
-    pf_query = db.query(
-        extract("month", ProcessedFilePF.remittance_month).label("month"),
-        extract("day", ProcessedFilePF.remittance_date).label("day"),
-        (
-            func.julianday(ProcessedFilePF.remittance_date)
-            - func.julianday(
-                func.date(
-                    ProcessedFilePF.remittance_month + text("-01"),
-                    "+1 month",
-                    "-16 days",
+    points = [[] for _ in range(12)]
+
+    for result in results:
+        if result.month and result.month.isdigit():
+            month = int(result.month) - 1  # Convert to 0-based index
+            if 0 <= month < 12 and result.day and result.amount:
+                points[month].append(
+                    {"x": int(result.day), "y": float(result.amount), "r": 5}
                 )
-            )
-        ).label("delay_days"),
-        ProcessedFilePF.remittance_amount.label("amount"),
-    ).filter(
-        ProcessedFilePF.remittance_submitted == True,
-        ProcessedFilePF.remittance_date.isnot(None),
-    )
-    if year:
-        pf_query = pf_query.filter(
-            extract("year", ProcessedFilePF.remittance_month) == year
-        )
 
-    pf_query = filter_fn(pf_query, ProcessedFilePF)
-    pf_results = pf_query.all()
-
-    esi_query = db.query(
-        extract("month", ProcessedFileESI.remittance_month).label("month"),
-        extract("day", ProcessedFileESI.remittance_date).label("day"),
-        func.julianday(ProcessedFileESI.remittance_date)
-        - func.julianday(
-            func.date(
-                ProcessedFileESI.remittance_month + text("-01"), "+1 month", "-16 days"
-            )
-        ).label("delay_days"),
-        ProcessedFileESI.remittance_amount.label("amount"),
-    ).filter(
-        ProcessedFileESI.remittance_submitted == True,
-        ProcessedFileESI.remittance_date.isnot(None),
-    )
-
-    if year:
-        esi_query = esi_query.filter(
-            extract("year", ProcessedFileESI.remittance_month) == year
-        )
-
-    esi_query = filter_fn(esi_query, ProcessedFileESI)
-    esi_results = esi_query.all()
-
-    return format_delayed_data(pf_results, esi_results)
+    return {"labels": month_labels, "points": points}
 
 
 def format_delayed_data(pf_results, esi_results):
@@ -2761,8 +2524,8 @@ def format_delayed_data(pf_results, esi_results):
     esi_data = [[] for _ in range(12)]
 
     for result in pf_results:
-        if 1 <= result.month <= 12:
-            pf_data[result.month - 1].append(
+        if result.month and result.month.isdigit() and 1 <= int(result.month) <= 12:
+            pf_data[int(result.month) - 1].append(
                 {
                     "delay_days": int(result.delay_days or 0),
                     "amount": float(result.amount or 0),
@@ -2770,8 +2533,8 @@ def format_delayed_data(pf_results, esi_results):
             )
 
     for result in esi_results:
-        if 1 <= result.month <= 12:
-            esi_data[result.month - 1].append(
+        if result.month and result.month.isdigit() and 1 <= int(result.month) <= 12:
+            esi_data[int(result.month) - 1].append(
                 {
                     "delay_days": int(result.delay_days or 0),
                     "amount": float(result.amount or 0),
@@ -2781,6 +2544,417 @@ def format_delayed_data(pf_results, esi_results):
     return {"labels": month_labels, "datasets": {"PF": pf_data, "ESI": esi_data}}
 
 
+# =============================================================================
+# Query Helper Functions
+# =============================================================================
+
+
+def apply_user_filter(query, model, current_user):
+    """Apply user-based filtering to queries"""
+    if current_user.role not in [Role.ADMIN]:
+        return query.filter(model.user_id == current_user.id)
+    return query
+
+
+def extract_year_from_remittance(column):
+    """Extract year from MM-YYYY formatted string"""
+    return func.substring(column, 4, 4)
+
+
+def extract_month_from_remittance(column):
+    """Extract month from MM-YYYY formatted string"""
+    return func.substring(column, 1, 2)
+
+
+# =============================================================================
+# Dashboard Data Collection Functions
+# =============================================================================
+
+
+async def get_monthly_amounts(db, current_year, current_user):
+    """Get aggregated monthly remittance amounts"""
+    # PF amounts
+    pf_query = db.query(
+        extract_month_from_remittance(ProcessedFilePF.remittance_month).label("month"),
+        func.sum(ProcessedFilePF.remittance_amount).label("total_amount"),
+    ).filter(
+        ProcessedFilePF.remittance_submitted.is_(True),
+        ProcessedFilePF.remittance_amount.isnot(None),
+        extract_year_from_remittance(ProcessedFilePF.remittance_month)
+        == str(current_year),
+    )
+
+    pf_query = apply_user_filter(pf_query, ProcessedFilePF, current_user)
+    pf_results = pf_query.group_by("month").all()
+
+    # ESI amounts
+    esi_query = db.query(
+        extract_month_from_remittance(ProcessedFileESI.remittance_month).label("month"),
+        func.sum(ProcessedFileESI.remittance_amount).label("total_amount"),
+    ).filter(
+        ProcessedFileESI.remittance_submitted.is_(True),
+        ProcessedFileESI.remittance_amount.isnot(None),
+        extract_year_from_remittance(ProcessedFileESI.remittance_month)
+        == str(current_year),
+    )
+
+    esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
+    esi_results = esi_query.group_by("month").all()
+
+    return format_monthly_amounts(pf_results, esi_results)
+
+
+async def get_submission_timeline_data(db, model, current_year, current_user):
+    """Get submission timeline data"""
+    query = db.query(
+        extract_month_from_remittance(model.remittance_month).label("month"),
+        extract("day", model.remittance_date).label("day"),
+        model.remittance_amount.label("amount"),
+    ).filter(
+        model.remittance_submitted.is_(True),
+        model.remittance_date.isnot(None),
+        model.remittance_amount.isnot(None),
+        extract_year_from_remittance(model.remittance_month) == str(current_year),
+    )
+
+    query = apply_user_filter(query, model, current_user)
+    results = query.all()
+    return format_submission_timeline_data(results)
+
+
+async def get_delayed_submissions(db, current_year, current_user):
+    """Get delayed submission data with SQLite-compatible date calculations"""
+    # SQLite-compatible due date calculation (15th of next month)
+    due_date_expr = func.date(
+        func.substr(ProcessedFilePF.remittance_month, 4, 4)
+        + "-"
+        + func.substr(ProcessedFilePF.remittance_month, 1, 2)
+        + "-15",
+        "+1 month",
+    )
+
+    pf_query = db.query(
+        func.substr(ProcessedFilePF.remittance_month, 1, 2).label("month"),
+        extract("day", ProcessedFilePF.remittance_date).label("day"),
+        (
+            func.julianday(ProcessedFilePF.remittance_date)
+            - func.julianday(due_date_expr)
+        ).label("delay_days"),
+        ProcessedFilePF.remittance_amount.label("amount"),
+    ).filter(
+        ProcessedFilePF.remittance_submitted.is_(True),
+        ProcessedFilePF.remittance_date.isnot(None),
+        func.substr(ProcessedFilePF.remittance_month, 4, 4) == str(current_year),
+        (
+            func.julianday(ProcessedFilePF.remittance_date)
+            - func.julianday(due_date_expr)
+        )
+        > 0,
+    )
+
+    pf_query = apply_user_filter(pf_query, ProcessedFilePF, current_user)
+    pf_results = pf_query.all()
+
+    # Similar query for ESI
+    esi_due_date_expr = func.date(
+        func.substr(ProcessedFileESI.remittance_month, 4, 4)
+        + "-"
+        + func.substr(ProcessedFileESI.remittance_month, 1, 2)
+        + "-15",
+        "+1 month",
+    )
+
+    esi_query = db.query(
+        func.substr(ProcessedFileESI.remittance_month, 1, 2).label("month"),
+        extract("day", ProcessedFileESI.remittance_date).label("day"),
+        (
+            func.julianday(ProcessedFileESI.remittance_date)
+            - func.julianday(esi_due_date_expr)
+        ).label("delay_days"),
+        ProcessedFileESI.remittance_amount.label("amount"),
+    ).filter(
+        ProcessedFileESI.remittance_submitted.is_(True),
+        ProcessedFileESI.remittance_date.isnot(None),
+        func.substr(ProcessedFileESI.remittance_month, 4, 4) == str(current_year),
+        (
+            func.julianday(ProcessedFilePF.remittance_date)
+            - func.julianday(due_date_expr)
+        )
+        > 0,
+    )
+
+    esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
+    esi_results = esi_query.all()
+
+    return format_delayed_data(pf_results, esi_results)
+
+
+async def get_summary_stats(db, current_year, month, current_user):
+    """Get summary statistics with SQLite-compatible date calculations"""
+    # Base filters
+    base_filters = [
+        func.substr(ProcessedFilePF.remittance_month, 4, 4) == str(current_year),
+        ProcessedFilePF.remittance_submitted.is_(True),
+    ]
+
+    if month is not None:
+        base_filters.append(
+            func.substr(ProcessedFilePF.remittance_month, 1, 2) == f"{month:02d}"
+        )
+
+    # PF Summary (unchanged)
+    pf_query = db.query(
+        func.sum(ProcessedFilePF.remittance_amount).label("total_amount"),
+        func.count(ProcessedFilePF.id).label("count"),
+        func.avg(ProcessedFilePF.remittance_amount).label("avg_amount"),
+    ).filter(*base_filters)
+
+    pf_query = apply_user_filter(pf_query, ProcessedFilePF, current_user)
+    pf_result = pf_query.first()
+
+    # ESI Summary (unchanged)
+    esi_base_filters = [
+        func.substr(ProcessedFileESI.remittance_month, 4, 4) == str(current_year),
+        ProcessedFileESI.remittance_submitted.is_(True),
+    ]
+
+    if month:
+        esi_base_filters.append(
+            func.substr(ProcessedFileESI.remittance_month, 1, 2) == f"{month:02d}"
+        )
+
+    esi_query = db.query(
+        func.sum(ProcessedFileESI.remittance_amount).label("total_amount"),
+        func.count(ProcessedFileESI.id).label("count"),
+        func.avg(ProcessedFileESI.remittance_amount).label("avg_amount"),
+    ).filter(*esi_base_filters)
+
+    esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
+    esi_result = esi_query.first()
+
+    # SQLite-compatible on-time calculation
+    due_date_expr = func.date(
+        func.substr(ProcessedFilePF.remittance_month, 4, 4)
+        + "-"
+        + func.substr(ProcessedFilePF.remittance_month, 1, 2)
+        + "-15",
+        "+1 month",
+    )
+
+    on_time_query = db.query(func.count(ProcessedFilePF.id)).filter(
+        ProcessedFilePF.remittance_submitted.is_(True),
+        func.substr(ProcessedFilePF.remittance_month, 4, 4) == str(current_year),
+        ProcessedFilePF.remittance_date <= due_date_expr,
+    )
+
+    if month:
+        on_time_query = on_time_query.filter(
+            func.substr(ProcessedFilePF.remittance_month, 1, 2) == f"{month:02d}"
+        )
+
+    on_time_query = apply_user_filter(on_time_query, ProcessedFilePF, current_user)
+    on_time_count = on_time_query.scalar() or 0
+
+    total_pf_submissions = pf_result.count if pf_result else 0
+    on_time_rate = (
+        (on_time_count / total_pf_submissions) if total_pf_submissions > 0 else 0
+    )
+
+    return {
+        "total_pf": (
+            str(pf_result.total_amount) if pf_result and pf_result.total_amount else "0"
+        ),
+        "total_esi": (
+            str(esi_result.total_amount)
+            if esi_result and esi_result.total_amount
+            else "0"
+        ),
+        "pf_submissions": total_pf_submissions,
+        "esi_submissions": esi_result.count if esi_result else 0,
+        "on_time_rate": on_time_rate,
+        "avg_pf": (
+            str(pf_result.avg_amount) if pf_result and pf_result.avg_amount else "0"
+        ),
+        "avg_esi": (
+            str(esi_result.avg_amount) if esi_result and esi_result.avg_amount else "0"
+        ),
+    }
+
+
+# =============================================================================
+# API Endpoints
+# =============================================================================
+
+
+###########################################################################
+@app.get("/dashboard/monthly_amounts", response_model=MonthlyAmountData)
+async def get_monthly_amounts_endpoint(
+    year: int = Query(None, description="Filter by specific year"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Endpoint for monthly remittance amounts chart data"""
+    current_year = year or datetime.now().year
+
+    # Get monthly amounts data
+    challan_data = await get_monthly_amounts(db, current_year, current_user)
+
+    # Create response model
+    return MonthlyAmountData(
+        labels=challan_data["labels"], datasets=challan_data["datasets"]
+    )
+
+
+@app.get("/dashboard/summary_stats", response_model=SummaryStatsResponse)
+async def get_summary_stats_endpoint(
+    year: int = Query(None, description="Filter by specific year"),
+    month: int = Query(
+        None, description="Optional month filter (1-12) for summary cards"
+    ),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Endpoint for summary statistics cards"""
+    current_year = year or datetime.now().year
+
+    # Get summary stats data
+    summary_stats = await get_summary_stats(db, current_year, month, current_user)
+
+    # Also fetch monthly amounts to provide individual month data
+    challan_data = await get_monthly_amounts(db, current_year, current_user)
+
+    # Create response model
+    return SummaryStatsResponse(
+        summary_stats=SummaryStats(**summary_stats),
+        monthly_amounts=MonthlyAmountData(
+            labels=challan_data["labels"], datasets=challan_data["datasets"]
+        ),
+        year=current_year,
+    )
+
+
+@app.get("/dashboard/submissions_data", response_model=SubmissionsDataResponse)
+async def get_submissions_data_endpoint(
+    year: int = Query(None, description="Filter by specific year"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Endpoint for timeline and delayed submissions data"""
+    current_year = year or datetime.now().year
+
+    # Execute queries in parallel
+    pf_submissions, esi_submissions, delayed_data = await asyncio.gather(
+        get_submission_timeline_data(db, ProcessedFilePF, current_year, current_user),
+        get_submission_timeline_data(db, ProcessedFileESI, current_year, current_user),
+        get_delayed_submissions(db, current_year, current_user),
+    )
+
+    # Create response model
+    return SubmissionsDataResponse(
+        pf_submissions=SubmissionData(
+            labels=pf_submissions["labels"], points=pf_submissions["points"]
+        ),
+        esi_submissions=SubmissionData(
+            labels=esi_submissions["labels"], points=esi_submissions["points"]
+        ),
+        delayed_submissions=DelayedData(
+            labels=delayed_data["labels"],
+            datasets={
+                "PF": [
+                    [DelayedSubmission(**sub) for sub in month_subs]
+                    for month_subs in delayed_data["datasets"]["PF"]
+                ],
+                "ESI": [
+                    [DelayedSubmission(**sub) for sub in month_subs]
+                    for month_subs in delayed_data["datasets"]["ESI"]
+                ],
+            },
+        ),
+        year=current_year,
+    )
+
+
+@app.get("/dashboard/remittance_stats_viz", response_model=RemittanceDashboardStats)
+async def get_remittance_dashboard_stats(
+    year: int = Query(None, description="Filter by specific year"),
+    month: int = Query(
+        None, description="Optional month filter (1-12) for summary cards"
+    ),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enhanced remittance dashboard statistics with proper date handling"""
+    current_year = year or datetime.now().year
+
+    # Execute all queries in parallel
+    challan_data, pf_submissions, esi_submissions, delayed_data, summary_stats = (
+        await asyncio.gather(
+            get_monthly_amounts(db, current_year, current_user),
+            get_submission_timeline_data(
+                db, ProcessedFilePF, current_year, current_user
+            ),
+            get_submission_timeline_data(
+                db, ProcessedFileESI, current_year, current_user
+            ),
+            get_delayed_submissions(db, current_year, current_user),
+            get_summary_stats(db, current_year, month, current_user),
+        )
+    )
+
+    # Create response model
+    return RemittanceDashboardStats(
+        monthly_amounts=MonthlyAmountData(
+            labels=challan_data["labels"], datasets=challan_data["datasets"]
+        ),
+        pf_submissions=SubmissionData(
+            labels=pf_submissions["labels"], points=pf_submissions["points"]
+        ),
+        esi_submissions=SubmissionData(
+            labels=esi_submissions["labels"], points=esi_submissions["points"]
+        ),
+        delayed_submissions=DelayedData(
+            labels=delayed_data["labels"],
+            datasets={
+                "PF": [
+                    [DelayedSubmission(**sub) for sub in month_subs]
+                    for month_subs in delayed_data["datasets"]["PF"]
+                ],
+                "ESI": [
+                    [DelayedSubmission(**sub) for sub in month_subs]
+                    for month_subs in delayed_data["datasets"]["ESI"]
+                ],
+            },
+        ),
+        summary_stats=SummaryStats(**summary_stats),
+        year=current_year,
+    )
+
+
+@app.get("/dashboard/yearly_summary", response_model=SummaryStatsResponse)
+async def get_yearly_summary_endpoint(
+    year: int = Query(None, description="Filter by specific year"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Endpoint for yearly summary statistics (not affected by month filter)"""
+    current_year = year or datetime.now().year
+
+    # Get yearly summary stats (without month filter)
+    summary_stats = await get_summary_stats(db, current_year, None, current_user)
+
+    # Also fetch monthly amounts for the charts
+    challan_data = await get_monthly_amounts(db, current_year, current_user)
+
+    # Create response model
+    return SummaryStatsResponse(
+        summary_stats=SummaryStats(**summary_stats),
+        monthly_amounts=MonthlyAmountData(
+            labels=challan_data["labels"], datasets=challan_data["datasets"]
+        ),
+        year=current_year,
+    )
+
+
 # Function to create the database tables
 def create_db_tables():
     Base.metadata.create_all(bind=engine)
@@ -2788,40 +2962,3 @@ def create_db_tables():
 
 # Call the function to create tables
 create_db_tables()
-
-
-@app.get("/uploads/by-year-days/")
-def get_upload_days_by_year(
-    year: int = Query(..., description="Year to filter uploads")
-):
-    session = SessionLocal()
-    try:
-        results = (
-            session.query(ProcessedFileESI.upload_month, ProcessedFileESI.upload_date)
-            .filter(ProcessedFileESI.upload_date != None)
-            .filter(ProcessedFileESI.upload_date.like(f"{year}-%"))
-            .all()
-        )
-        results2 = (
-            session.query(ProcessedFilePF.upload_month, ProcessedFilePF.upload_date)
-            .filter(ProcessedFilePF.upload_date != None)
-            .filter(ProcessedFilePF.upload_date.like(f"{year}-%"))
-            .all()
-        )
-        return {
-            "esi": [
-                {"month": row.upload_month, "day": row.upload_date.day}
-                for row in results
-            ],
-            "pf": [
-                {
-                    "month": datetime.strptime(row.upload_month, "%m-%Y").strftime(
-                        "%B"
-                    ),
-                    "day": row.upload_date.day,
-                }
-                for row in results2
-            ],
-        }
-    finally:
-        session.close()

@@ -150,7 +150,7 @@ class SubmissionPoint(BaseModel):
 
     x: int  # Day of month
     y: float  # Amount
-    r: int = 5  # Radius
+    r: Optional[int] = 5  # Radius
 
 
 class DelayedSubmission(BaseModel):
@@ -216,3 +216,15 @@ class RemittanceDashboardStats(BaseModel):
     delayed_submissions: DelayedData
     summary_stats: SummaryStats
     year: int
+
+class SummaryStatsResponse(BaseModel):
+    summary_stats: SummaryStats
+    monthly_amounts: MonthlyAmountData
+    year: int
+
+class SubmissionsDataResponse(BaseModel):
+    pf_submissions: SubmissionData
+    esi_submissions: SubmissionData
+    delayed_submissions: DelayedData
+    year: int
+
