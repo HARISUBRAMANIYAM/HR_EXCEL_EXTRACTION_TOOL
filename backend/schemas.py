@@ -234,7 +234,6 @@ class Years(BaseModel):
 
 class DelayDataPoint(BaseModel):
     delay_days: int
-    amount: float
 
 class DelayedChartResponse(BaseModel):
     labels: List[str]

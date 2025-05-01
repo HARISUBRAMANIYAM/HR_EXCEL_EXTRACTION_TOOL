@@ -2431,13 +2431,6 @@ def parse_remittance_month(remittance_month: str) -> tuple:
     month, year = remittance_month.split("-")
     return (int(month), int(year))
 
-
-def get_current_user():
-    """Get current authenticated user - Mock implementation"""
-    # Mock implementation - replace with your actual auth logic
-    return UserModel(id=1, role=Role.ADMIN)
-
-
 # =============================================================================
 # Data Formatting Functions
 # =============================================================================
@@ -2504,7 +2497,7 @@ def format_submission_timeline_data(results):
     return {"labels": month_labels, "points": points}
 
 
-def format_delayed_data(pf_results, esi_results):
+'''def format_delayed_data(pf_results, esi_results):
     """Structure delayed submissions data"""
     month_labels = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -2528,6 +2521,38 @@ def format_delayed_data(pf_results, esi_results):
             esi_data[int(month) - 1].append({
                 "delay_days": int(result.get("delay_days", 0)),
                 "amount": float(result.get("amount", 0))
+            })
+
+    return {
+        "labels": month_labels,
+        "datasets": {
+            "PF": pf_data,
+            "ESI": esi_data
+        }
+    }
+'''
+def format_delayed_data(pf_results, esi_results):
+    month_labels = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ]
+    month_index = {name: i for i, name in enumerate(month_labels)}
+
+    pf_data = [[] for _ in range(12)]
+    esi_data = [[] for _ in range(12)]
+
+    for result in pf_results:
+        month = result.get("month")
+        if month in month_index:
+            pf_data[month_index[month]].append({
+                "delay_days": int(result.get("delay_days", 0))
+            })
+
+    for result in esi_results:
+        month = result.get("month")
+        if month in month_index:
+            esi_data[month_index[month]].append({
+                "delay_days": int(result.get("delay_days", 0))
             })
 
     return {
@@ -2683,7 +2708,7 @@ async def get_submission_timeline_data(db, model, current_year, current_user):
     return format_delayed_data(pf_results, esi_results)'''
 def parse_remittance_date(date_str):
     try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
+        return datetime.strptime(date_str, "%d-%m-%Y")
     except Exception:
         return None
 
@@ -2696,7 +2721,7 @@ def calculate_due_date(month_str):
     except Exception:
         return None
 
-async def get_delayed_submissions(db, current_year, current_user):
+'''async def get_delayed_submissions(db, current_year, current_user):
     pf_query = db.query(
         ProcessedFilePF.remittance_month,
         ProcessedFilePF.remittance_date,
@@ -2744,7 +2769,59 @@ async def get_delayed_submissions(db, current_year, current_user):
                 "amount": result.remittance_amount
             })
 
+    return format_delayed_data(pf_results, esi_results)'''
+async def get_delayed_submissions(db, current_year, current_user):
+    pf_query = db.query(
+        ProcessedFilePF.created_at,
+        ProcessedFilePF.remittance_date,
+        ProcessedFilePF.remittance_month
+    ).filter(
+        ProcessedFilePF.remittance_submitted.is_(True),
+        ProcessedFilePF.remittance_date.isnot(None)
+    )
+    pf_query = apply_user_filter(pf_query, ProcessedFilePF, current_user)
+    pf_raw_results = pf_query.all()
+
+    pf_results = []
+    for result in pf_raw_results:
+        try:
+            rem_date = parse_remittance_date(result.remittance_date)
+            if rem_date and result.created_at.year == current_year and rem_date.year == current_year:
+                delay_days = (rem_date - result.created_at.date()).days
+                pf_results.append({
+                    "month": rem_date.strftime("%b"),
+                    "delay_days": delay_days
+                })
+        except Exception:
+            continue
+
+    # ESI part
+    esi_query = db.query(
+        ProcessedFileESI.created_at,
+        ProcessedFileESI.remittance_date,
+        ProcessedFileESI.remittance_month
+    ).filter(
+        ProcessedFileESI.remittance_submitted.is_(True),
+        ProcessedFileESI.remittance_date.isnot(None)
+    )
+    esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
+    esi_raw_results = esi_query.all()
+
+    esi_results = []
+    for result in esi_raw_results:
+        try:
+            rem_date = parse_remittance_date(result.remittance_date)
+            if rem_date and result.created_at.year == current_year and rem_date.year == current_year:
+                delay_days = (rem_date - result.created_at.date()).days
+                esi_results.append({
+                    "month": rem_date.strftime("%b"),
+                    "delay_days": delay_days
+                })
+        except Exception:
+            continue
+
     return format_delayed_data(pf_results, esi_results)
+
 
 
 async def get_summary_stats(db, current_year, month, current_user):
@@ -3030,6 +3107,299 @@ async def delayed_submissions_chart(
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import List
+
+@app.get("/dashboard/delayed-submissions_new", response_model=DelayedChartResponse)
+async def delayed_submissions_chart(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_year = datetime.now().year
+    month_labels = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ]
+    pf_data = [[] for _ in range(12)]
+    esi_data = [[] for _ in range(12)]
+
+    try:
+        # PF Query
+        pf_query = db.query(
+            ProcessedFilePF.created_at,
+            ProcessedFilePF.remittance_date
+        ).filter(
+            ProcessedFilePF.remittance_submitted.is_(True),
+            ProcessedFilePF.remittance_date.isnot(None)
+        )
+        pf_query = apply_user_filter(pf_query, ProcessedFilePF, current_user)
+
+        for result in pf_query.all():
+            try:
+                rem_date = parse_remittance_date(result.remittance_date)
+                if rem_date and rem_date.year == current_year:
+                    delay = (rem_date - result.created_at.date()).days
+                    month_idx = rem_date.month -1
+                    pf_data[month_idx].append({"delay_days":delay})
+            except Exception as e:
+                print("PF Error:",e)
+
+        # ESI Query
+        esi_query = db.query(
+            ProcessedFileESI.created_at,
+            ProcessedFileESI.remittance_date
+        ).filter(
+            ProcessedFileESI.remittance_submitted.is_(True),
+            ProcessedFileESI.remittance_date.isnot(None),
+        )
+        esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
+        for result in esi_query.all():
+            try:
+                rem_date = parse_remittance_date(result.remittance_date)
+                print(rem_date)
+                if rem_date and rem_date.year == current_year:
+                    delay = (rem_date - result.created_at.date()).days
+                    print("delays",delay)
+                    month_idx = rem_date.month - 1
+                    esi_data[month_idx].append({"delay_days": delay})
+            except Exception as e:
+                print("ESI Error:", e)
+        print("pf_query",pf_query.all())
+        print("esi_qurey",esi_query.all())
+        print("pf_data",pf_data)
+        print("esi_data",esi_data)
+        return {
+            "labels": month_labels,
+            "datasets": {
+                "PF": pf_data,
+                "ESI": esi_data
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+@app.get("/dashboard/delayed-submissions_mode", response_model=DelayedChartResponse)
+async def delayed_submissions_chart(
+    year: int = Query(None, description="Filter by specific year"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_year = year or datetime.now().year
+    month_labels = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ]
+    
+    # Initialize the data structure for monthly delays
+    pf_data = [[] for _ in range(12)]
+    esi_data = [[] for _ in range(12)]
+
+    try:
+        # PF Query
+        pf_query = db.query(
+            ProcessedFilePF.created_at,
+            ProcessedFilePF.remittance_date
+        ).filter(
+            ProcessedFilePF.remittance_submitted.is_(True),
+            ProcessedFilePF.remittance_date.isnot(None)
+        )
+        pf_query = apply_user_filter(pf_query, ProcessedFilePF, current_user)
+        
+        # Process PF records using the provided logic
+        pf_records = pf_query.all()
+        import calendar
+        pf_delays = []
+        
+        for create_at, remittance_date in pf_records:
+            if create_at and remittance_date:
+                if isinstance(remittance_date, str):
+                    try:
+                        remittance_date = datetime.strptime(remittance_date, "%d-%m-%Y")
+                    except ValueError:
+                        continue
+                
+                if create_at.year == current_year and remittance_date.year == current_year:
+                    delay_days = (remittance_date.date() - create_at.date()).days
+                    month_name = calendar.month_name[create_at.month]
+                    month_idx = create_at.month - 1  # Convert to 0-based index
+                    
+                    pf_delays.append({
+                        "month": month_name,
+                        "delay_days": delay_days,
+                        "created_at": create_at,
+                        "remittance_date": remittance_date
+                    })
+                    
+                    # Add to the month-based data structure - removed 'amount' field
+                    pf_data[month_idx].append({"delay_days": delay_days})
+
+        # ESI Query
+        esi_query = db.query(
+            ProcessedFileESI.created_at,
+            ProcessedFileESI.remittance_date
+        ).filter(
+            ProcessedFileESI.remittance_submitted.is_(True),
+            ProcessedFileESI.remittance_date.isnot(None),
+        )
+        esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
+        
+        # Process ESI records using the provided logic
+        esi_records = esi_query.all()
+        esi_delays = []
+        
+        for create_at, remittance_date in esi_records:
+            if create_at and remittance_date:
+                if isinstance(remittance_date, str):
+                    try:
+                        remittance_date = datetime.strptime(remittance_date, "%d-%m-%Y")
+                    except ValueError:
+                        continue
+                
+                if create_at.year == current_year and remittance_date.year == current_year:
+                    delay_days = (remittance_date.date() - create_at.date()).days
+                    month_name = calendar.month_name[create_at.month]
+                    month_idx = create_at.month - 1  # Convert to 0-based index
+                    
+                    esi_delays.append({
+                        "month": month_name,
+                        "delay_days": delay_days,
+                        "created_at": create_at,
+                        "remittance_date": remittance_date
+                    })
+                    
+                    # Add to the month-based data structure - removed 'amount' field
+                    esi_data[month_idx].append({"delay_days": delay_days})
+
+        # For debugging
+        for delay in pf_delays:
+            print(f"PF Month: {delay['month']}, Delay: {delay['delay_days']} days, From {delay['created_at'].date()} to {delay['remittance_date']}")
+        
+        for delay in esi_delays:
+            print(f"ESI Month: {delay['month']}, Delay: {delay['delay_days']} days, From {delay['created_at'].date()} to {delay['remittance_date']}")
+
+        return {
+            "labels": month_labels,
+            "datasets": {
+                "PF": pf_data,
+                "ESI": esi_data
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+@app.get("/dashboard/delayed-submissions_modifyed", response_model=DelayedChartResponse)
+async def delayed_submissions_chart(
+    year: int = Query(None, description="Filter by specific year"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_year = year or datetime.now().year
+    month_labels = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ]
+    
+    # Initialize the data structure for monthly delays
+    pf_data = [[] for _ in range(12)]
+    esi_data = [[] for _ in range(12)]
+
+    try:
+        # PF Query
+        pf_query = db.query(
+            ProcessedFilePF.created_at,
+            ProcessedFilePF.remittance_date
+        ).filter(
+            ProcessedFilePF.remittance_submitted.is_(True),
+            ProcessedFilePF.remittance_date.isnot(None)
+        )
+        pf_query = apply_user_filter(pf_query, ProcessedFilePF, current_user)
+        
+        # Process PF records using the provided logic
+        pf_records = pf_query.all()
+        import calendar
+        pf_delays = []
+        
+        for create_at, remittance_date in pf_records:
+            if create_at and remittance_date:
+                if isinstance(remittance_date, str):
+                    try:
+                        remittance_date = datetime.strptime(remittance_date, "%d-%m-%Y")
+                    except ValueError:
+                        continue
+                
+                if create_at.year == current_year and remittance_date.year == current_year:
+                    delay_days = (remittance_date.date() - create_at.date()).days
+                    month_name = calendar.month_name[create_at.month]
+                    month_idx = create_at.month - 1  # Convert to 0-based index
+                    
+                    pf_delays.append({
+                        "month": month_name,
+                        "delay_days": delay_days,
+                        "created_at": create_at,
+                        "remittance_date": remittance_date
+                    })
+                    
+                    # Add to the month-based data structure - removed 'amount' field
+                    pf_data[month_idx].append({"delay_days": delay_days})
+
+        # ESI Query
+        esi_query = db.query(
+            ProcessedFileESI.created_at,
+            ProcessedFileESI.remittance_date
+        ).filter(
+            ProcessedFileESI.remittance_submitted.is_(True),
+            ProcessedFileESI.remittance_date.isnot(None),
+        )
+        esi_query = apply_user_filter(esi_query, ProcessedFileESI, current_user)
+        
+        # Process ESI records using the provided logic
+        esi_records = esi_query.all()
+        esi_delays = []
+        
+        for create_at, remittance_date in esi_records:
+            if create_at and remittance_date:
+                if isinstance(remittance_date, str):
+                    try:
+                        remittance_date = datetime.strptime(remittance_date, "%d-%m-%Y")
+                    except ValueError:
+                        continue
+                
+                if create_at.year == current_year and remittance_date.year == current_year:
+                    delay_days = (remittance_date.date() - create_at.date()).days
+                    month_name = calendar.month_name[create_at.month]
+                    month_idx = create_at.month - 1  # Convert to 0-based index
+                    
+                    esi_delays.append({
+                        "month": month_name,
+                        "delay_days": delay_days,
+                        "created_at": create_at,
+                        "remittance_date": remittance_date
+                    })
+                    
+                    # Add to the month-based data structure - removed 'amount' field
+                    esi_data[month_idx].append({"delay_days": delay_days})
+
+        # For debugging
+        for delay in pf_delays:
+            print(f"PF Month: {delay['month']}, Delay: {delay['delay_days']} days, From {delay['created_at'].date()} to {delay['remittance_date']}")
+        
+        for delay in esi_delays:
+            print(f"ESI Month: {delay['month']}, Delay: {delay['delay_days']} days, From {delay['created_at'].date()} to {delay['remittance_date']}")
+
+        return {
+            "labels": month_labels,
+            "datasets": {
+                "PF": pf_data,
+                "ESI": esi_data
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
 # Function to create the database tables
 def create_db_tables():
     Base.metadata.create_all(bind=engine)
