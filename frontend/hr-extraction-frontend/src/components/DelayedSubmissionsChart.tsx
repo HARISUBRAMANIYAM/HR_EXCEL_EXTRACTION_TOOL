@@ -256,7 +256,7 @@ const DelayedSubmissionsChart: React.FC<DelayedSubmissionsChartProps> = ({
         if (response.data && response.data.datasets) {
           // Format PF data
           const pfData: FormattedDataPoint[] = [];
-          response.data.datasets.PF.forEach((monthData, monthIndex) => {
+          response.data.datasets.PF.forEach((monthData:DelayDataPoint[], monthIndex:number) => {
             monthData.forEach(dataPoint => {
               pfData.push({
                 month: monthIndex + 1, // 1-based month number
@@ -269,7 +269,7 @@ const DelayedSubmissionsChart: React.FC<DelayedSubmissionsChartProps> = ({
           
           // Format ESI data
           const esiData: FormattedDataPoint[] = [];
-          response.data.datasets.ESI.forEach((monthData, monthIndex) => {
+          response.data.datasets.ESI.forEach((monthData:DelayDataPoint[], monthIndex:number) => {
             monthData.forEach(dataPoint => {
               esiData.push({
                 month: monthIndex + 1, // 1-based month number
