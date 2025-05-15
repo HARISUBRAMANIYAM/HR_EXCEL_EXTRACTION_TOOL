@@ -3012,3 +3012,6 @@ def create_db_tables():
 
 # Call the function to create tables
 create_db_tables()
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
